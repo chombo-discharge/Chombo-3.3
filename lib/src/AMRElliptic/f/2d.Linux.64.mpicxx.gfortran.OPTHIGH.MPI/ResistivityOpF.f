@@ -1,0 +1,662 @@
+      subroutine PROLONGROP(
+     & phi
+     & ,iphilo0,iphilo1
+     & ,iphihi0,iphihi1
+     & ,nphicomp
+     & ,coarse
+     & ,icoarselo0,icoarselo1
+     & ,icoarsehi0,icoarsehi1
+     & ,ncoarsecomp
+     & ,iregionlo0,iregionlo1
+     & ,iregionhi0,iregionhi1
+     & ,m
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer nphicomp
+      integer iphilo0,iphilo1
+      integer iphihi0,iphihi1
+      REAL*8 phi(
+     & iphilo0:iphihi0,
+     & iphilo1:iphihi1,
+     & 0:nphicomp-1)
+      integer ncoarsecomp
+      integer icoarselo0,icoarselo1
+      integer icoarsehi0,icoarsehi1
+      REAL*8 coarse(
+     & icoarselo0:icoarsehi0,
+     & icoarselo1:icoarsehi1,
+     & 0:ncoarsecomp-1)
+      integer iregionlo0,iregionlo1
+      integer iregionhi0,iregionhi1
+      integer m
+      INTEGER ncomp, n
+      integer i,j
+      integer ii,jj
+      ncomp = nphicomp
+      do n = 0, ncomp-1
+      do j = iregionlo1,iregionhi1
+      do i = iregionlo0,iregionhi0
+          ii = (i-abs(mod(i,m)))/m
+          jj = (j-abs(mod(j,m)))/m
+          phi(i,j,n) = phi(i,j,n) +
+     & coarse(ii,jj,n)
+      enddo
+      enddo
+      enddo
+      return
+      end
+      subroutine RESTRICTRESROP(
+     & res
+     & ,ireslo0,ireslo1
+     & ,ireshi0,ireshi1
+     & ,nrescomp
+     & ,resFine
+     & ,iresFinelo0,iresFinelo1
+     & ,iresFinehi0,iresFinehi1
+     & ,nresFinecomp
+     & ,iregionlo0,iregionlo1
+     & ,iregionhi0,iregionhi1
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer nrescomp
+      integer ireslo0,ireslo1
+      integer ireshi0,ireshi1
+      REAL*8 res(
+     & ireslo0:ireshi0,
+     & ireslo1:ireshi1,
+     & 0:nrescomp-1)
+      integer nresFinecomp
+      integer iresFinelo0,iresFinelo1
+      integer iresFinehi0,iresFinehi1
+      REAL*8 resFine(
+     & iresFinelo0:iresFinehi0,
+     & iresFinelo1:iresFinehi1,
+     & 0:nresFinecomp-1)
+      integer iregionlo0,iregionlo1
+      integer iregionhi0,iregionhi1
+      REAL*8 denom
+      integer n
+      integer i,j
+      integer ii,jj
+      integer ncomp
+      ncomp = nrescomp
+      denom = (2.0d0) *(2.0d0)
+      do n = 0, ncomp-1
+      do j = iregionlo1,iregionhi1
+      do i = iregionlo0,iregionhi0
+         ii = (i-abs(mod(i,2)))/2
+         jj = (j-abs(mod(j,2)))/2
+         res(ii,jj,n) = res(ii,jj,n) + resFine(i,j,n)/denom
+      enddo
+      enddo
+      enddo
+      return
+      end
+      subroutine CELLGRADROP(
+     & grad
+     & ,igradlo0,igradlo1
+     & ,igradhi0,igradhi1
+     & ,vel
+     & ,ivello0,ivello1
+     & ,ivelhi0,ivelhi1
+     & ,igridlo0,igridlo1
+     & ,igridhi0,igridhi1
+     & ,dx
+     & ,divdir
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer CHF_ID(0:5,0:5)
+      data CHF_ID/ 1,0,0,0,0,0 ,0,1,0,0,0,0 ,0,0,1,0,0,0 ,0,0,0,1,0,0 ,0
+     &,0,0,0,1,0 ,0,0,0,0,0,1 /
+      integer igradlo0,igradlo1
+      integer igradhi0,igradhi1
+      REAL*8 grad(
+     & igradlo0:igradhi0,
+     & igradlo1:igradhi1)
+      integer ivello0,ivello1
+      integer ivelhi0,ivelhi1
+      REAL*8 vel(
+     & ivello0:ivelhi0,
+     & ivello1:ivelhi1)
+      integer igridlo0,igridlo1
+      integer igridhi0,igridhi1
+      REAL*8 dx
+      integer divdir
+      integer ii,i,jj,j
+      ii = chf_id(divdir, 0)
+      jj = chf_id(divdir, 1)
+      do j = igridlo1,igridhi1
+      do i = igridlo0,igridhi0
+      grad(i,j) =
+     $ ( vel(i+ii,j+jj)
+     $ - vel(i-ii,j-jj) )/((2.0d0)*dx)
+      enddo
+      enddo
+      return
+      end
+      subroutine ADDGRADTOFLUXROP(
+     & flux
+     & ,ifluxlo0,ifluxlo1
+     & ,ifluxhi0,ifluxhi1
+     & ,nfluxcomp
+     & ,fluxComp
+     & ,grad
+     & ,igradlo0,igradlo1
+     & ,igradhi0,igradhi1
+     & ,ngradcomp
+     & ,gradComp
+     & ,sign
+     & ,iregionfacelo0,iregionfacelo1
+     & ,iregionfacehi0,iregionfacehi1
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer nfluxcomp
+      integer ifluxlo0,ifluxlo1
+      integer ifluxhi0,ifluxhi1
+      REAL*8 flux(
+     & ifluxlo0:ifluxhi0,
+     & ifluxlo1:ifluxhi1,
+     & 0:nfluxcomp-1)
+      integer fluxComp
+      integer ngradcomp
+      integer igradlo0,igradlo1
+      integer igradhi0,igradhi1
+      REAL*8 grad(
+     & igradlo0:igradhi0,
+     & igradlo1:igradhi1,
+     & 0:ngradcomp-1)
+      integer gradComp
+      REAL*8 sign
+      integer iregionfacelo0,iregionfacelo1
+      integer iregionfacehi0,iregionfacehi1
+      integer i,j
+      do j = iregionfacelo1,iregionfacehi1
+      do i = iregionfacelo0,iregionfacehi0
+      flux(i,j, fluxcomp) = flux(i,j, fluxcomp) +
+     $ ( sign*grad(i,j, gradcomp))
+      enddo
+      enddo
+      return
+      end
+      subroutine GETFACEGRADROP(
+     & gradvelface
+     & ,igradvelfacelo0,igradvelfacelo1
+     & ,igradvelfacehi0,igradvelfacehi1
+     & ,gradvelcell
+     & ,igradvelcelllo0,igradvelcelllo1
+     & ,igradvelcellhi0,igradvelcellhi1
+     & ,velcomp
+     & ,ivelcomplo0,ivelcomplo1
+     & ,ivelcomphi0,ivelcomphi1
+     & ,iregionlo0,iregionlo1
+     & ,iregionhi0,iregionhi1
+     & ,icenterboxlo0,icenterboxlo1
+     & ,icenterboxhi0,icenterboxhi1
+     & ,iloboxlo0,iloboxlo1
+     & ,iloboxhi0,iloboxhi1
+     & ,haslo
+     & ,ihiboxlo0,ihiboxlo1
+     & ,ihiboxhi0,ihiboxhi1
+     & ,hashi
+     & ,dx
+     & ,facedir
+     & ,divdir
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer CHF_ID(0:5,0:5)
+      data CHF_ID/ 1,0,0,0,0,0 ,0,1,0,0,0,0 ,0,0,1,0,0,0 ,0,0,0,1,0,0 ,0
+     &,0,0,0,1,0 ,0,0,0,0,0,1 /
+      integer igradvelfacelo0,igradvelfacelo1
+      integer igradvelfacehi0,igradvelfacehi1
+      REAL*8 gradvelface(
+     & igradvelfacelo0:igradvelfacehi0,
+     & igradvelfacelo1:igradvelfacehi1)
+      integer igradvelcelllo0,igradvelcelllo1
+      integer igradvelcellhi0,igradvelcellhi1
+      REAL*8 gradvelcell(
+     & igradvelcelllo0:igradvelcellhi0,
+     & igradvelcelllo1:igradvelcellhi1)
+      integer ivelcomplo0,ivelcomplo1
+      integer ivelcomphi0,ivelcomphi1
+      REAL*8 velcomp(
+     & ivelcomplo0:ivelcomphi0,
+     & ivelcomplo1:ivelcomphi1)
+      integer iregionlo0,iregionlo1
+      integer iregionhi0,iregionhi1
+      integer icenterboxlo0,icenterboxlo1
+      integer icenterboxhi0,icenterboxhi1
+      integer iloboxlo0,iloboxlo1
+      integer iloboxhi0,iloboxhi1
+      integer haslo
+      integer ihiboxlo0,ihiboxlo1
+      integer ihiboxhi0,ihiboxhi1
+      integer hashi
+      REAL*8 dx
+      integer facedir
+      integer divdir
+      integer ii,i,jj,j
+      ii = chf_id(facedir, 0)
+      jj = chf_id(facedir, 1)
+      if (facedir .eq. divdir) then
+      do j = iregionlo1,iregionhi1
+      do i = iregionlo0,iregionhi0
+         gradvelface(i,j) =
+     $ ( velcomp(i ,j )
+     $ - velcomp(i-ii,j-jj) )/dx
+      enddo
+      enddo
+      else
+      do j = icenterboxlo1,icenterboxhi1
+      do i = icenterboxlo0,icenterboxhi0
+         gradvelface(i,j) =
+     $ ( gradvelcell(i ,j )
+     $ + gradvelcell(i-ii,j-jj) )/(2.0d0)
+      enddo
+      enddo
+         if(haslo .eq. 1) then
+      do j = iloboxlo1,iloboxhi1
+      do i = iloboxlo0,iloboxhi0
+            gradvelface(i,j) =
+     $ ((3.0d0)*gradvelcell(i ,j )
+     $ - gradvelcell(i+ii,j+jj))/(2.0d0)
+      enddo
+      enddo
+         endif
+         if(hashi .eq. 1) then
+      do j = ihiboxlo1,ihiboxhi1
+      do i = ihiboxlo0,ihiboxhi0
+            gradvelface(i,j) =
+     $ ((3.0d0)*gradvelcell(i- ii,j- jj)
+     $ - gradvelcell(i-2*ii,j-2*jj))/(2.0d0)
+      enddo
+      enddo
+         endif
+      endif
+      return
+      end
+      subroutine CELLDIVINCRROP(
+     & divvel
+     & ,idivvello0,idivvello1
+     & ,idivvelhi0,idivvelhi1
+     & ,vel
+     & ,ivello0,ivello1
+     & ,ivelhi0,ivelhi1
+     & ,nvelcomp
+     & ,dx
+     & ,divdir
+     & ,iregionlo0,iregionlo1
+     & ,iregionhi0,iregionhi1
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer CHF_ID(0:5,0:5)
+      data CHF_ID/ 1,0,0,0,0,0 ,0,1,0,0,0,0 ,0,0,1,0,0,0 ,0,0,0,1,0,0 ,0
+     &,0,0,0,1,0 ,0,0,0,0,0,1 /
+      integer idivvello0,idivvello1
+      integer idivvelhi0,idivvelhi1
+      REAL*8 divvel(
+     & idivvello0:idivvelhi0,
+     & idivvello1:idivvelhi1)
+      integer nvelcomp
+      integer ivello0,ivello1
+      integer ivelhi0,ivelhi1
+      REAL*8 vel(
+     & ivello0:ivelhi0,
+     & ivello1:ivelhi1,
+     & 0:nvelcomp-1)
+      REAL*8 dx
+      integer divdir
+      integer iregionlo0,iregionlo1
+      integer iregionhi0,iregionhi1
+      integer ii,i,jj,j
+      ii = chf_id(divdir, 0)
+      jj = chf_id(divdir, 1)
+      do j = iregionlo1,iregionhi1
+      do i = iregionlo0,iregionhi0
+      divvel(i,j) = divvel(i,j) +
+     $ ( vel(i+ii,j+jj,divdir)
+     $ - vel(i-ii,j-jj,divdir) )/((2.0d0)*dx)
+      enddo
+      enddo
+      return
+      end
+      subroutine FACEDIVINCRROP(
+     & divvel
+     & ,idivvello0,idivvello1
+     & ,idivvelhi0,idivvelhi1
+     & ,vel
+     & ,ivello0,ivello1
+     & ,ivelhi0,ivelhi1
+     & ,nvelcomp
+     & ,gradvel
+     & ,igradvello0,igradvello1
+     & ,igradvelhi0,igradvelhi1
+     & ,ngradvelcomp
+     & ,iregionlo0,iregionlo1
+     & ,iregionhi0,iregionhi1
+     & ,icenterboxlo0,icenterboxlo1
+     & ,icenterboxhi0,icenterboxhi1
+     & ,iloboxlo0,iloboxlo1
+     & ,iloboxhi0,iloboxhi1
+     & ,haslo
+     & ,ihiboxlo0,ihiboxlo1
+     & ,ihiboxhi0,ihiboxhi1
+     & ,hashi
+     & ,dx
+     & ,facedir
+     & ,divdir
+     & ,gradcomp
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer CHF_ID(0:5,0:5)
+      data CHF_ID/ 1,0,0,0,0,0 ,0,1,0,0,0,0 ,0,0,1,0,0,0 ,0,0,0,1,0,0 ,0
+     &,0,0,0,1,0 ,0,0,0,0,0,1 /
+      integer idivvello0,idivvello1
+      integer idivvelhi0,idivvelhi1
+      REAL*8 divvel(
+     & idivvello0:idivvelhi0,
+     & idivvello1:idivvelhi1)
+      integer nvelcomp
+      integer ivello0,ivello1
+      integer ivelhi0,ivelhi1
+      REAL*8 vel(
+     & ivello0:ivelhi0,
+     & ivello1:ivelhi1,
+     & 0:nvelcomp-1)
+      integer ngradvelcomp
+      integer igradvello0,igradvello1
+      integer igradvelhi0,igradvelhi1
+      REAL*8 gradvel(
+     & igradvello0:igradvelhi0,
+     & igradvello1:igradvelhi1,
+     & 0:ngradvelcomp-1)
+      integer iregionlo0,iregionlo1
+      integer iregionhi0,iregionhi1
+      integer icenterboxlo0,icenterboxlo1
+      integer icenterboxhi0,icenterboxhi1
+      integer iloboxlo0,iloboxlo1
+      integer iloboxhi0,iloboxhi1
+      integer haslo
+      integer ihiboxlo0,ihiboxlo1
+      integer ihiboxhi0,ihiboxhi1
+      integer hashi
+      REAL*8 dx
+      integer facedir
+      integer divdir
+      integer gradcomp
+      integer ii,i,jj,j
+      ii = chf_id(facedir, 0)
+      jj = chf_id(facedir, 1)
+      if (facedir .eq. divdir) then
+      do j = iregionlo1,iregionhi1
+      do i = iregionlo0,iregionhi0
+         divvel(i,j) = divvel(i,j) +
+     $ ( vel(i ,j ,facedir)
+     $ - vel(i-ii,j-jj,facedir) )/dx
+      enddo
+      enddo
+      else
+      do j = icenterboxlo1,icenterboxhi1
+      do i = icenterboxlo0,icenterboxhi0
+         divvel(i,j) = divvel(i,j) +
+     $ ( gradvel(i ,j , gradcomp)
+     $ + gradvel(i-ii,j-jj, gradcomp) )/(2.0d0)
+      enddo
+      enddo
+         if(haslo .eq. 1) then
+      do j = iloboxlo1,iloboxhi1
+      do i = iloboxlo0,iloboxhi0
+            divvel(i,j) = divvel(i,j) +
+     $ ((3.0d0)*gradvel(i ,j , gradcomp)
+     $ - gradvel(i+ii,j+jj, gradcomp))/(2.0d0)
+      enddo
+      enddo
+         endif
+         if(hashi .eq. 1) then
+      do j = ihiboxlo1,ihiboxhi1
+      do i = ihiboxlo0,ihiboxhi0
+            divvel(i,j) = divvel(i,j) +
+     $ ((3.0d0)*gradvel(i- ii,j- jj, gradcomp)
+     $ - gradvel(i-2*ii,j-2*jj, gradcomp))/(2.0d0)
+      enddo
+      enddo
+         endif
+      endif
+      return
+      end
+      subroutine DECRINVLAMBDAROP(
+     & lambda
+     & ,ilambdalo0,ilambdalo1
+     & ,ilambdahi0,ilambdahi1
+     & ,nlambdacomp
+     & ,eta
+     & ,ietalo0,ietalo1
+     & ,ietahi0,ietahi1
+     & ,netacomp
+     & ,iboxlo0,iboxlo1
+     & ,iboxhi0,iboxhi1
+     & ,beta
+     & ,dx
+     & ,idir
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer CHF_ID(0:5,0:5)
+      data CHF_ID/ 1,0,0,0,0,0 ,0,1,0,0,0,0 ,0,0,1,0,0,0 ,0,0,0,1,0,0 ,0
+     &,0,0,0,1,0 ,0,0,0,0,0,1 /
+      integer nlambdacomp
+      integer ilambdalo0,ilambdalo1
+      integer ilambdahi0,ilambdahi1
+      REAL*8 lambda(
+     & ilambdalo0:ilambdahi0,
+     & ilambdalo1:ilambdahi1,
+     & 0:nlambdacomp-1)
+      integer netacomp
+      integer ietalo0,ietalo1
+      integer ietahi0,ietahi1
+      REAL*8 eta(
+     & ietalo0:ietahi0,
+     & ietalo1:ietahi1,
+     & 0:netacomp-1)
+      integer iboxlo0,iboxlo1
+      integer iboxhi0,iboxhi1
+      REAL*8 beta
+      REAL*8 dx
+      integer idir
+      integer ii,jj
+      integer i,j
+      integer icomp
+      REAL*8 etahi, etalo
+      integer ncomp
+      ncomp = nlambdacomp
+      ii = CHF_ID(idir, 0)
+      jj = CHF_ID(idir, 1)
+      do icomp = 0, ncomp-1
+      do j = iboxlo1,iboxhi1
+      do i = iboxlo0,iboxhi0
+         etahi = eta(i+ii,j+jj,0)
+         etalo = eta(i ,j ,0)
+         lambda(i,j, icomp) = lambda(i,j,icomp)
+     $ - beta*(
+     $ eta(i+ii,j+jj,0) +
+     $ eta(i ,j ,0))/(dx*dx)
+      enddo
+      enddo
+      enddo
+      return
+      end
+      subroutine INVERTLAMBDAROP(
+     & lambda
+     & ,ilambdalo0,ilambdalo1
+     & ,ilambdahi0,ilambdahi1
+     & ,nlambdacomp
+     & ,safety
+     & ,iboxlo0,iboxlo1
+     & ,iboxhi0,iboxhi1
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer nlambdacomp
+      integer ilambdalo0,ilambdalo1
+      integer ilambdahi0,ilambdahi1
+      REAL*8 lambda(
+     & ilambdalo0:ilambdahi0,
+     & ilambdalo1:ilambdahi1,
+     & 0:nlambdacomp-1)
+      REAL*8 safety
+      integer iboxlo0,iboxlo1
+      integer iboxhi0,iboxhi1
+      integer i,j
+      integer icomp
+      integer ncomp
+      ncomp = nlambdacomp
+      do icomp = 0, ncomp-1
+      do j = iboxlo1,iboxhi1
+      do i = iboxlo0,iboxhi0
+         lambda(i,j, icomp) =
+     $ safety/(lambda(i,j,icomp))
+      enddo
+      enddo
+      enddo
+      return
+      end
+      subroutine GSRBROP(
+     & phi
+     & ,iphilo0,iphilo1
+     & ,iphihi0,iphihi1
+     & ,nphicomp
+     & ,lphi
+     & ,ilphilo0,ilphilo1
+     & ,ilphihi0,ilphihi1
+     & ,nlphicomp
+     & ,rhs
+     & ,irhslo0,irhslo1
+     & ,irhshi0,irhshi1
+     & ,nrhscomp
+     & ,lambda
+     & ,ilambdalo0,ilambdalo1
+     & ,ilambdahi0,ilambdahi1
+     & ,nlambdacomp
+     & ,icoloredboxlo0,icoloredboxlo1
+     & ,icoloredboxhi0,icoloredboxhi1
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer nphicomp
+      integer iphilo0,iphilo1
+      integer iphihi0,iphihi1
+      REAL*8 phi(
+     & iphilo0:iphihi0,
+     & iphilo1:iphihi1,
+     & 0:nphicomp-1)
+      integer nlphicomp
+      integer ilphilo0,ilphilo1
+      integer ilphihi0,ilphihi1
+      REAL*8 lphi(
+     & ilphilo0:ilphihi0,
+     & ilphilo1:ilphihi1,
+     & 0:nlphicomp-1)
+      integer nrhscomp
+      integer irhslo0,irhslo1
+      integer irhshi0,irhshi1
+      REAL*8 rhs(
+     & irhslo0:irhshi0,
+     & irhslo1:irhshi1,
+     & 0:nrhscomp-1)
+      integer nlambdacomp
+      integer ilambdalo0,ilambdalo1
+      integer ilambdahi0,ilambdahi1
+      REAL*8 lambda(
+     & ilambdalo0:ilambdahi0,
+     & ilambdalo1:ilambdahi1,
+     & 0:nlambdacomp-1)
+      integer icoloredboxlo0,icoloredboxlo1
+      integer icoloredboxhi0,icoloredboxhi1
+      integer i,j
+      integer icomp
+      integer ncomp
+      ncomp = nphicomp
+      do icomp = 0, ncomp-1
+      do j = icoloredBoxlo1,icoloredBoxhi1,2
+      do i = icoloredBoxlo0,icoloredBoxhi0,2
+         phi(i,j, icomp) =
+     $ phi( i,j,icomp) +
+     & lambda(i,j,icomp)*(
+     $ rhs( i,j,icomp) -
+     $ lphi( i,j,icomp))
+      enddo
+      enddo
+      enddo
+      return
+      end
+      subroutine ADDDIVFLUXDIRROP(
+     & lhs
+     & ,ilhslo0,ilhslo1
+     & ,ilhshi0,ilhshi1
+     & ,nlhscomp
+     & ,flux
+     & ,ifluxlo0,ifluxlo1
+     & ,ifluxhi0,ifluxhi1
+     & ,nfluxcomp
+     & ,iregionlo0,iregionlo1
+     & ,iregionhi0,iregionhi1
+     & ,dx
+     & ,facedir
+     & )
+      implicit none
+      integer*8 ch_flops
+      COMMON/ch_timer/ ch_flops
+      integer CHF_ID(0:5,0:5)
+      data CHF_ID/ 1,0,0,0,0,0 ,0,1,0,0,0,0 ,0,0,1,0,0,0 ,0,0,0,1,0,0 ,0
+     &,0,0,0,1,0 ,0,0,0,0,0,1 /
+      integer nlhscomp
+      integer ilhslo0,ilhslo1
+      integer ilhshi0,ilhshi1
+      REAL*8 lhs(
+     & ilhslo0:ilhshi0,
+     & ilhslo1:ilhshi1,
+     & 0:nlhscomp-1)
+      integer nfluxcomp
+      integer ifluxlo0,ifluxlo1
+      integer ifluxhi0,ifluxhi1
+      REAL*8 flux(
+     & ifluxlo0:ifluxhi0,
+     & ifluxlo1:ifluxhi1,
+     & 0:nfluxcomp-1)
+      integer iregionlo0,iregionlo1
+      integer iregionhi0,iregionhi1
+      REAL*8 dx
+      integer facedir
+      integer ii,i,jj,j
+      integer icomp
+      integer ncomp
+      ncomp = nlhscomp
+      ii = CHF_ID(facedir, 0)
+      jj = CHF_ID(facedir, 1)
+      do icomp = 0, ncomp-1
+      do j = iregionlo1,iregionhi1
+      do i = iregionlo0,iregionhi0
+         lhs(i,j, icomp) = lhs(i,j, icomp) +
+     $ (flux(i+ii,j+jj, icomp)
+     $ -flux(i ,j , icomp))/dx
+      enddo
+      enddo
+      enddo
+      return
+      end

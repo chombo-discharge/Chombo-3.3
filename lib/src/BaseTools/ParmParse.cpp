@@ -103,6 +103,12 @@ ParmParse::define (int         argc,
     ppinit(parfile);
 }
 
+void
+ParmParse::redefine(const char* parfile)
+{
+    ppinit(parfile);
+}
+
 ParmParse::ParmParse (const char* prefix)
 {
   if (prefix != 0)

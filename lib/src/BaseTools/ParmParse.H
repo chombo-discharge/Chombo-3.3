@@ -2873,6 +2873,11 @@ public:
                const char* prefix  = 0,
                const char* parfile = 0);
 
+  /** 
+      Loads table again
+  */
+  void redefine(const char* parfile);
+
   /** Construct an additional ParmParse object sharing the same
     internal table as any other such objects in existence.  If
     prefix is specified, load this string as the code prefix
