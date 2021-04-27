@@ -106,7 +106,10 @@ ParmParse::define (int         argc,
 void
 ParmParse::redefine(const char* parfile)
 {
-    ppinit(parfile);
+  for (PP_ListIterator<PP_entry*> li(table); li; ++li)
+    delete table[li];
+  table.clear();  
+  ppinit(parfile);
 }
 
 ParmParse::ParmParse (const char* prefix)
