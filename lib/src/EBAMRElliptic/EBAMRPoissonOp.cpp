@@ -1151,7 +1151,7 @@ getAggregatedLayout(DisjointBoxLayout           & a_dblCoar,
                     const int                   & a_maxBoxSize)
 {
   //this should elliminate the cost of copyto in fillebisl
-  pout() << "getting aggregated layouts"  << endl;
+  //  pout() << "getting aggregated layouts"  << endl;
   //if we are covering domain with more than one box, make one big split-up box
   Vector<Box> boxes;
   domainSplit(a_domainCoar, boxes, a_maxBoxSize);
