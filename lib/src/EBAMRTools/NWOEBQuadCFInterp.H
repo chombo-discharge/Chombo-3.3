@@ -119,13 +119,15 @@ protected:
   LevelData<EBCellFAB> m_bufferCoFi;
   
 
-private:
+
   //weak construction is bad
   NWOEBQuadCFInterp()
   {
-    MayDay::Error("invalid operator");
+    //    MayDay::Error("invalid operator");
   }
 
+private:
+  
   //disallowed for all the usual reasons
   NWOEBQuadCFInterp(NWOEBQuadCFInterp& a_input)
   {
