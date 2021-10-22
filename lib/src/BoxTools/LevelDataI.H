@@ -53,7 +53,11 @@ LevelData<T>::LevelData(const DisjointBoxLayout& dp, int comps, const IntVect& g
   //no need for exchange copier if no ghost
   if(m_ghost != IntVect::Zero)
     {
+#if 0
       m_exchangeCopier.define(m_disjointBoxLayout, m_disjointBoxLayout, m_ghost, true);
+#else
+      m_exchangeCopier.exchangeDefine(m_disjointBoxLayout, m_ghost);
+#endif
     }
 
   if (!dp.isClosed())
