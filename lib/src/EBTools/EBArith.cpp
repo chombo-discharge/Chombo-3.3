@@ -28,6 +28,7 @@
 #include "BRMeshRefine.H"
 #include "LoadBalance.H"
 #include "EBLoadBalance.H"
+#include "NeighborIterator.H"
 #include "CH_OpenMP.H"
 #include "NamespaceHeader.H"
 
@@ -1645,10 +1646,12 @@ EBArith::defineCFIVS(LayoutData<IntVectSet>&   a_cfivs,
       Box grownBox = grow(a_grids.get(dit()), 1);
       grownBox &= a_probDom;
       a_cfivs[dit()] = IntVectSet(grownBox);
-      for (LayoutIterator lit = a_grids.layoutIterator(); lit.ok(); ++lit)
+
+      NeighborIterator nit(a_grids);
+      for (nit.begin(dit()); nit.ok(); ++nit)
         {
-          a_cfivs[dit()] -= a_grids[lit()];
-        }
+          a_cfivs[dit()] -= a_grids[nit()];
+	}
     }
 }
 

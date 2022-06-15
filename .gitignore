@@ -1,0 +1,14 @@
+*.hdf5
+pout.*
+lib/include/**
+*.a
+**/d/**
+**/o/**
+**/f/**
+**/p/**
+time.table.*
+*.ex
+lib/.check*
+lib/mk/.check*
+*_F.H
+lib/mk/Make.defs.local
