@@ -149,8 +149,8 @@ template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
   for (int p=0; p<numProc(); ++p)
     {
       a_pp[p].clear();
-      if (snd_sizes[p] > 0) delete snd_buf[p];
-      if (rcv_sizes[p] > 0) delete rcv_buf[p];
+      if (snd_sizes[p] > 0) delete[] snd_buf[p];
+      if (rcv_sizes[p] > 0) delete[] rcv_buf[p];
     }
 }
 
