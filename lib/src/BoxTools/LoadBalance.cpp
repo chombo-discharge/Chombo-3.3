@@ -11,6 +11,7 @@
 #include <iostream>
 #include <list>
 #include <set>
+#include <limits>
 using std::cout;
 
 #include "parstream.H"
