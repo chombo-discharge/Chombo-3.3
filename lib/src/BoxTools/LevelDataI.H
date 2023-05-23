@@ -114,7 +114,11 @@ void LevelData<T>::define(const DisjointBoxLayout& dp, int comps, const IntVect&
   bool periodic = m_disjointBoxLayout.physDomain().isPeriodic();
   if((m_ghost != IntVect::Zero) && !periodic)
     {
+#if 0
       m_exchangeCopier.define(m_disjointBoxLayout, m_disjointBoxLayout, m_ghost, true);
+#else
+      m_exchangeCopier.exchangeDefine(m_disjointBoxLayout, m_ghost);
+#endif      
     }
 
   // Interval interval(0, comps-1);
@@ -146,7 +150,11 @@ void LevelData<T>::define(const LevelData<T>& da,  const DataFactory<T> & a_fact
   //no need for exchange copier if no ghost
   if(m_ghost != IntVect::Zero)
     {
+#if 0
       m_exchangeCopier.define(m_disjointBoxLayout, m_disjointBoxLayout, m_ghost, true);
+#else
+      m_exchangeCopier.exchangeDefine(m_disjointBoxLayout, m_ghost);
+#endif            
     }
   this->allocateGhostVector(a_factory, m_ghost);
   da.copyTo(*this);
@@ -189,7 +197,11 @@ void LevelData<T>::define(const LevelData<T>& da, const Interval& comps,
   //no need for exchange copier if no ghost
   if(m_ghost != IntVect::Zero)
     {
+#if 0
       m_exchangeCopier.define(m_disjointBoxLayout, m_disjointBoxLayout, m_ghost, true);
+#else
+      m_exchangeCopier.exchangeDefine(m_disjointBoxLayout, m_ghost);
+#endif                  
     }
 
   Interval dest(0, this->m_comps-1);
