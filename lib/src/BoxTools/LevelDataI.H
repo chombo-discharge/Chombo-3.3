@@ -442,7 +442,11 @@ void LevelData<T>::exchange(const Interval& comps)
 #else
             CH_TIME("LevelData::exchange (defining copier)");
 #endif
+#if 0
           m_exchangeCopier.define(m_disjointBoxLayout, m_disjointBoxLayout, m_ghost, true);
+#else
+	  m_exchangeCopier.exchangeDefine(m_disjointBoxLayout, m_ghost);
+#endif
         }
         {
 #ifdef USE_PROTO
