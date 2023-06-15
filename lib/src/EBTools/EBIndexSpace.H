@@ -105,6 +105,8 @@ public:
                             int                     a_nCellMax,
                             bool                    a_fixRegularNextToMultiValued = true);
 
+  Real m_dx;
+  RealVect m_origin;
   ///
   ~EBIndexSpace();
 
