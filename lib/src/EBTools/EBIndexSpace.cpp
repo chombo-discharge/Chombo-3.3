@@ -648,13 +648,12 @@ EBIndexSpace::buildNextLevel(const GeometryService& a_geoserver, int a_nCellMax,
     m_domainLevel[ilev] = m_domainLevel[ilev - 1];
     m_domainLevel[ilev].coarsen(2);
 
-    Real dx = m_dx * std::pow(2, ilev);
 #if 0
     m_ebisLevel[ilev] = new EBISLevel(*m_ebisLevel[ilev - 1], a_geoserver, a_nCellMax, a_fixRegularNextToMultiValued);
 
 #else
     m_ebisLevel[ilev] =
-      new EBISLevel(*m_ebisLevel[ilev - 1], a_geoserver, dx, a_nCellMax, a_fixRegularNextToMultiValued);
+      new EBISLevel(m_domainLevel[ilev], m_origin, m_dx*std::pow(2, ilev),a_geoserver, a_nCellMax, a_fixRegularNextToMultiValued);
 #endif
   }
 
