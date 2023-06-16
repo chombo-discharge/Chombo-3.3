@@ -481,12 +481,12 @@ void EBISLevel::simplifyGraphFromGeo(LevelData<EBGraph>             & a_graph,
     }
 }
 
-EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
-                     const RealVect        & a_origin,
-                     const Real            & a_dx,
-                     const GeometryService & a_geoserver,
-                     int                     a_nCellMax,
-                     const bool            & a_fixRegularNextToMultiValued)
+EBISLevel::EBISLevel(const ProblemDomain&   a_domain,
+                     const RealVect&        a_origin,
+                     const Real             a_dx,
+                     const GeometryService& a_geoserver,
+                     int                    a_nCellMax,
+                     const bool&            a_fixRegularNextToMultiValued)
 {
   // this is the method called by EBIndexSpace::buildFirstLevel
   CH_TIME("EBISLevel::EBISLevel_geoserver_domain");
@@ -496,29 +496,22 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
   m_cacheHits   = 0;
   m_cacheStale  = 0;
 
-  m_domain = a_domain;
-  m_dx = a_dx;
-  m_tolerance = a_dx*1E-4;
-  m_origin = a_origin;
+  m_domain    = a_domain;
+  m_dx        = a_dx;
+  m_tolerance = a_dx * 1E-4;
+  m_origin    = a_origin;
 
   m_level = 0;
 
   m_geoserver = &a_geoserver;
 
-  Vector<Box> vbox;
+  Vector<Box>                vbox;
   Vector<unsigned long long> irregCount;
 
-  if(!s_distributedData){
+  if (!s_distributedData) {
     {
       CH_TIME("EBISLevel::EBISLevel_makeboxes");
-      makeBoxes(vbox,
-		irregCount,
-		a_domain.domainBox(),
-		a_domain,
-		a_geoserver,
-		a_origin,
-		a_dx,
-		a_nCellMax);
+      makeBoxes(vbox, irregCount, a_domain.domainBox(), a_domain, a_geoserver, a_origin, a_dx, a_nCellMax);
     }
 
     // pout()<<vbox<<"\n\n";
@@ -529,50 +522,93 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
     //   pout()<<irregCount<<std::endl;
     //   pout()<<procAssign<<std::endl;
     pout() << "before defining grids" << endl;
-    m_grids.define(vbox, procAssign,a_domain);//this should use a_domain for periodic
+    m_grids.define(vbox, procAssign, a_domain); //this should use a_domain for periodic
     pout() << "after defining grids" << endl;
   }
-  else
-    {
-      CH_TIME("EBISLevel::EBISLevel_makegrids");
-      // permit the geometry service to construct a layout, or accept an already defined layout from EBIndexSpace
+  else {
+    CH_TIME("EBISLevel::EBISLevel_makegrids");
+    // permit the geometry service to construct a layout, or accept an already defined layout from EBIndexSpace
 
-      (const_cast<GeometryService*>(&a_geoserver))->makeGrids(a_domain, m_grids, a_nCellMax, 15);
-    }
+    (const_cast<GeometryService*>(&a_geoserver))->makeGrids(a_domain, m_grids, a_nCellMax, 15);
+  }
 
   RealVect dx2D;
-  for (int i = 0; i < SpaceDim; i++)
-    {
-      dx2D[i]=a_dx;
-    }
+  for (int i = 0; i < SpaceDim; i++) {
+    dx2D[i] = a_dx;
+  }
 
-  (const_cast<GeometryService*>(&a_geoserver))->postMakeBoxLayout(m_grids,dx2D);
-  LayoutData<Vector<IrregNode> > allNodes(m_grids);
+  (const_cast<GeometryService*>(&a_geoserver))->postMakeBoxLayout(m_grids, dx2D);
+  LayoutData<Vector<IrregNode>> allNodes(m_grids);
 
   EBGraphFactory graphfact(a_domain);
   m_graph.define(m_grids, 1, IntVect::Unit, graphfact);
 
-  defineGraphFromGeo(m_graph, allNodes, a_geoserver, m_grids,
-                     m_domain,m_origin, m_dx);
+  defineGraphFromGeo(m_graph, allNodes, a_geoserver, m_grids, m_domain, m_origin, m_dx);
 
   checkGraph();
 
   EBDataFactory dataFact;
   m_data.define(m_grids, 1, IntVect::Zero, dataFact);
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      m_data[dit()].define(m_graph[dit()], allNodes[dit()], m_grids.get(dit()));
+  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit) {
+    m_data[dit()].define(m_graph[dit()], allNodes[dit()], m_grids.get(dit()));
+  }
 
+  if (a_geoserver.canGenerateMultiCells()) {
+    if (a_fixRegularNextToMultiValued) {
+      fixRegularNextToMultiValued();
     }
-
-  if (a_geoserver.canGenerateMultiCells())
-    {
-      if (a_fixRegularNextToMultiValued)
-        {
-          fixRegularNextToMultiValued();
-        }
-    }
+  }
   pout() << "Exiting EBISLevel::EBISLevel called by EBIndexSpace::buildFirstLevel..." << endl;
+}
+
+EBISLevel::EBISLevel(EBISLevel&             a_finerLevel,
+                     const GeometryService& a_geoserver,
+                     const RealVect&        a_origin,
+                     const int&             a_nCellMax,
+                     const bool&            a_fixRegularNextToMultiValued)
+{
+  CH_TIME("EBISLevel::EBISLevel(graph_coarsen+fill)");
+
+  m_cacheMisses = 0;
+  m_cacheHits   = 0;
+  m_cacheStale  = 0;
+  m_domain      = coarsen(a_finerLevel.m_domain, 2);
+  m_dx          = 2. * a_finerLevel.m_dx;
+  m_tolerance   = 2. * a_finerLevel.m_tolerance;
+  m_origin      = a_finerLevel.m_origin;
+  m_geoserver   = &a_geoserver;
+  m_level       = a_finerLevel.m_level + 1;
+
+  //  pout() << "before make boxes" << endl;
+  if (!s_distributedData) {
+    Vector<Box>                vbox;
+    Vector<unsigned long long> irregCount;
+    Vector<int>                procAssign;
+
+    makeBoxes(vbox, irregCount, m_domain.domainBox(), m_domain, a_geoserver, m_origin, m_dx, a_nCellMax);
+    basicLoadBalance(procAssign, vbox.size());
+
+    m_grids.define(vbox, procAssign);
+  }
+  else {
+    (const_cast<GeometryService*>(&a_geoserver))->makeGrids(m_domain, m_grids, a_nCellMax, 15);
+  }
+
+  EBGraphFactory ebgraphfact(m_domain);
+  EBDataFactory  ebdatafact;
+
+  m_graph.define(m_grids, 1, IntVect::Zero, ebgraphfact);
+  m_data.define(m_grids, 1, IntVect::Zero, ebdatafact);
+
+  this->coarsenVoFs(a_finerLevel);
+  this->coarsenFaces(a_finerLevel);
+
+  if (a_fixRegularNextToMultiValued) {
+    this->fixRegularNextToMultiValued();
+  }
+
+  this->fixFineToCoarse(a_finerLevel);
+  this->checkGraph();
 }
 
 //now fix the multivalued next to regular thing for the graph and the data
