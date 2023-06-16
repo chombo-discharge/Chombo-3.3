@@ -139,13 +139,6 @@ public:
             int                     a_nCellMax,
             const bool            & a_fixRegularNextToMultiValued = true);
 
-
-  EBISLevel(EBISLevel             & a_finerLevel,
-            const GeometryService & a_geoserver,
-	    const Real dx,
-            int                     a_nCellMax,
-            const bool            & a_fixRegularNextToMultiValued = true);  
-
   void checkGraph() const;
 #ifdef CH_USE_HDF5
   /// read from file from top level only file
