@@ -112,7 +112,7 @@ bool GeometryShop::isRegular(const Box&           a_region,
 {
   CH_TIME("GeometryShop::isRegular");
   // set a vectDx
-  RealVect vectDx = a_dx*RealVect::Unit;//m_vectDx;
+  RealVect vectDx = m_vectDx;
 
   // If this isn't an STL description then the value function works
   if (m_stlIF == NULL)
@@ -148,7 +148,7 @@ bool GeometryShop::isRegularEveryPoint(const Box&           a_region,
 {
   CH_TIME("GeometryShop::isRegularEveryPoint");
   // set a vectDx
-  RealVect vectDx = a_dx*RealVect::Unit;
+  RealVect vectDx = m_vectDx;
 
   // All corner indices for the current box
   Box allCorners(a_region);
@@ -209,7 +209,7 @@ bool GeometryShop::isIrregular(const Box&           a_region,
 
   CH_TIME("GeometryShop::isIrregular");
   // set a vectDx
-  RealVect vectDx = a_dx*RealVect::Unit;
+  RealVect vectDx = m_vectDx;
 
   // first check any of the Box corners is outside, and return false
   // right away. (bvs)
@@ -264,7 +264,7 @@ bool GeometryShop::isIrregularEveryPoint(const Box&           a_region,
 {
   CH_TIME("GeometryShop::isIrregularEveryPoint");
   // set a vectDx
-  RealVect vectDx = a_dx*RealVect::Unit;
+  RealVect vectDx = m_vectDx;
 
   // All corner indices for the current box
   Box allCorners(a_region);
@@ -324,7 +324,7 @@ bool GeometryShop::isCovered(const Box&           a_region,
   CH_TIME("GeometryShop::isCovered");
 
   // set a vectDx
-  RealVect vectDx = a_dx*RealVect::Unit;
+  RealVect vectDx = m_vectDx;
 
   // first check any of the Box corners is outside, and return false
   // right away. (bvs)
@@ -370,7 +370,7 @@ bool GeometryShop::isCoveredEveryPoint(const Box&           a_region,
 {
   CH_TIME("GeometryShop::isCoveredEveryPoint");
   // set a vectDx
-  RealVect vectDx = a_dx*RealVect::Unit;
+  RealVect vectDx = m_vectDx;
 
   // All corner indices for the current box
   Box allCorners(a_region);
@@ -457,7 +457,6 @@ GeometryService::InOut GeometryShop::InsideOutside(const Box&           a_region
       {
         vectDx = a_dx * RealVect::Unit;
       }
-        vectDx = a_dx * RealVect::Unit;      
 
       STLExplorer* stlExplorer = NULL;
       if (m_stlIF != NULL)
@@ -595,9 +594,8 @@ GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
     }
   else
     {
-      vectDx = a_dx*RealVect::Unit;
+      vectDx = m_vectDx;
     }
-      vectDx = a_dx*RealVect::Unit;  
 
   Real thrshd = m_thrshdVoF;
   PolyGeom::setVectDx(vectDx);
