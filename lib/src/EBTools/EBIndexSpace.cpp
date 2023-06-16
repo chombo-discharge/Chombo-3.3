@@ -300,7 +300,6 @@ EBIndexSpace::define(const ProblemDomain&   a_domain,
     n = buildNextLevel(a_geoserver, cellMax);
 
     if (n) {
-      n->clearMultiBoundaries();
       n->printGraphSummary("    ");
     }
     else {
@@ -650,9 +649,6 @@ EBIndexSpace::buildNextLevel(const GeometryService& a_geoserver, int a_nCellMax,
     m_domainLevel[ilev].coarsen(2);
 
     Real dx = m_dx * std::pow(2, ilev);
-    if (procID() == 0) {
-      std::cout << m_dx << "\t" << ilev << "\t" << dx << std::endl;
-    }
 #if 0
     m_ebisLevel[ilev] = new EBISLevel(*m_ebisLevel[ilev - 1], a_geoserver, a_nCellMax, a_fixRegularNextToMultiValued);
 

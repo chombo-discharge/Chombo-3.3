@@ -458,15 +458,12 @@ EBISLevel::EBISLevel(const ProblemDomain&   a_domain,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
-
-  m_domain    = a_domain;
-  m_dx        = a_dx;
-  m_tolerance = a_dx * 1E-4;
-  m_origin    = a_origin;
-
-  m_level = 0;
-
-  m_geoserver = &a_geoserver;
+  m_domain      = a_domain;
+  m_dx          = a_dx;
+  m_tolerance   = a_dx * 1E-4;
+  m_origin      = a_origin;
+  m_level       = 0;
+  m_geoserver   = &a_geoserver;
 
   Vector<Box>                vbox;
   Vector<unsigned long long> irregCount;
@@ -522,6 +519,53 @@ EBISLevel::EBISLevel(const ProblemDomain&   a_domain,
     }
   }
   pout() << "Exiting EBISLevel::EBISLevel called by EBIndexSpace::buildFirstLevel..." << endl;
+}
+
+EBISLevel::EBISLevel(EBISLevel&             a_fineEBIS,
+                     const GeometryService& a_geoserver,
+                     const Real             dx,
+                     int                    a_nCellMax,
+                     const bool&            a_fixRegularNextToMultiValued)
+{
+  CH_TIME("EBISLevel::EBISLevel_fineEBIS");
+
+  m_cacheMisses = 0;
+  m_cacheHits   = 0;
+  m_cacheStale  = 0;
+  m_domain      = coarsen(a_fineEBIS.m_domain, 2);
+  m_dx          = 2. * a_fineEBIS.m_dx;
+  m_tolerance   = 2. * a_fineEBIS.m_tolerance;
+  m_origin      = a_fineEBIS.m_origin;
+  m_geoserver   = &a_geoserver;
+  m_level       = a_fineEBIS.m_level + 1;
+
+  (const_cast<GeometryService*>(&a_geoserver))->makeGrids(m_domain, m_grids, a_nCellMax, 15);
+
+  EBGraphFactory ebgraphfact(m_domain);
+  EBDataFactory  ebdatafact;
+
+  m_graph.define(m_grids, 1, 2 * IntVect::Unit, ebgraphfact);
+  m_data.define(m_grids, 1, 2 * IntVect::Unit, ebdatafact);
+
+#if 1 // Define the graph from the
+  LayoutData<Vector<IrregNode>> allNodes(m_grids);
+
+  defineGraphFromGeo(m_graph, allNodes, a_geoserver, m_grids, m_domain, m_origin, m_dx);
+
+  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit) {
+    m_data[dit()].define(m_graph[dit()], allNodes[dit()], m_grids.get(dit()));
+  }
+#endif
+
+  //  coarsenVoFs(a_fineEBIS);
+  //  coarsenFaces(a_fineEBIS);
+
+  if (a_fixRegularNextToMultiValued) {
+    fixRegularNextToMultiValued();
+  }
+
+  //  fixFineToCoarse(a_fineEBIS);
+  checkGraph();
 }
 
 //now fix the multivalued next to regular thing for the graph and the data
@@ -948,120 +992,30 @@ EBISLevel::EBISLevel(EBISLevel&             a_fineEBIS,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_domain      = coarsen(a_fineEBIS.m_domain, 2);
+  m_dx          = 2. * a_fineEBIS.m_dx;
+  m_tolerance   = 2. * a_fineEBIS.m_tolerance;
+  m_origin      = a_fineEBIS.m_origin;
+  m_geoserver   = &a_geoserver;
+  m_level       = a_fineEBIS.m_level + 1;
 
-  m_domain    = coarsen(a_fineEBIS.m_domain, 2);
-  m_dx        = 2. * a_fineEBIS.m_dx;
-  m_tolerance = 2. * a_fineEBIS.m_tolerance;
-  m_origin    = a_fineEBIS.m_origin;
-
-  m_geoserver = &a_geoserver;
-
-  m_level = a_fineEBIS.m_level + 1;
-
-  //  pout() << "before make boxes" << endl;
-  if (!s_distributedData) {
-    Vector<Box>                vbox;
-    Vector<unsigned long long> irregCount;
-    {
-      CH_TIME("EBISLevel::EBISLevel_fineEBIS_makeboxes 2");
-      makeBoxes(vbox, irregCount, m_domain.domainBox(), m_domain, a_geoserver, m_origin, m_dx, a_nCellMax);
-    }
-
-    //pout()<<vbox<<"\n\n";
-    //load balance the boxes
-    Vector<int> procAssign;
-    //UnLongLongLoadBalance(procAssign, irregCount, vbox);
-    basicLoadBalance(procAssign, vbox.size());
-    //pout()<<procAssign<<std::endl;
-    //define the layout.  this includes the domain and box stuff
-    m_grids.define(vbox, procAssign); //this should use m_domain for periodic
-  }
-  else {
-    (const_cast<GeometryService*>(&a_geoserver))->makeGrids(m_domain, m_grids, a_nCellMax, 15);
-  }
+  // Make grids on this level
+  (const_cast<GeometryService*>(&a_geoserver))->makeGrids(m_domain, m_grids, a_nCellMax, 15);
 
   EBGraphFactory ebgraphfact(m_domain);
-  //  pout() << "before defining grids" << endl;
-  m_graph.define(m_grids, 1, IntVect::Zero, ebgraphfact);
+  EBDataFactory  ebdatafact;
 
-  EBDataFactory ebdatafact;
+  m_graph.define(m_grids, 1, IntVect::Zero, ebgraphfact);
   m_data.define(m_grids, 1, IntVect::Zero, ebdatafact);
 
-  //  pout() << "before coarsenVoFs " << endl;
-  //create coarsened vofs from fine.
   coarsenVoFs(a_fineEBIS);
-
-  //  pout() << "before coarsenFacess " << endl;
-  //overallMemoryUsage();
-  //create coarse faces from fine
   coarsenFaces(a_fineEBIS);
-  //overallMemoryUsage();
-  //fix the regular next to the multivalued cells
-  //to be full irregular cells
-  //  dumpDebug(string("EBIS::before FRNTM"));
+
   if (a_fixRegularNextToMultiValued) {
     fixRegularNextToMultiValued();
   }
-  //  dumpDebug(string("EBIS::after FRNTM"));
 
-  //overallMemoryUsage();
-  // fix the fine->coarseVoF thing.
-  //  pout() << "before fix fine to coarse " << endl;
   fixFineToCoarse(a_fineEBIS);
-  checkGraph();
-#if 0
-  pout() << "EBISLevel::EBISLevel 4 - m_grids - m_dx: " << m_dx << endl;
-  pout() << "--------" << endl;
-  pout() << m_grids.boxArray().size() << endl;
-  pout() << "--------" << endl;
-  pout() << endl;
-#endif
-}
-
-EBISLevel::EBISLevel(EBISLevel&             a_fineEBIS,
-                     const GeometryService& a_geoserver,
-                     const Real             dx,
-                     int                    a_nCellMax,
-                     const bool&            a_fixRegularNextToMultiValued)
-{
-  CH_TIME("EBISLevel::EBISLevel_fineEBIS");
-
-  m_cacheMisses = 0;
-  m_cacheHits   = 0;
-  m_cacheStale  = 0;
-
-  m_domain    = coarsen(a_fineEBIS.m_domain, 2);
-  m_dx        = 2. * a_fineEBIS.m_dx;
-  m_tolerance = 2. * a_fineEBIS.m_tolerance;
-  m_origin    = a_fineEBIS.m_origin;
-
-  m_geoserver = &a_geoserver;
-
-  m_level = a_fineEBIS.m_level + 1;
-
-  { // Coarsen graph.
-    (const_cast<GeometryService*>(&a_geoserver))->makeGrids(m_domain, m_grids, a_nCellMax, 15);
-
-    EBGraphFactory ebgraphfact(m_domain);
-    EBDataFactory  ebdatafact;
-
-    m_graph.define(m_grids, 1, IntVect::Zero, ebgraphfact);
-    m_data.define(m_grids, 1, IntVect::Zero, ebdatafact);
-
-    coarsenVoFs(a_fineEBIS);
-    coarsenFaces(a_fineEBIS);
-
-    if (a_fixRegularNextToMultiValued) {
-      fixRegularNextToMultiValued();
-    }
-  }
-  //  dumpDebug(string("EBIS::after FRNTM"));
-
-  //overallMemoryUsage();
-  // fix the fine->coarseVoF thing.
-  //  pout() << "before fix fine to coarse " << endl;
-  fixFineToCoarse(a_fineEBIS);
-  checkGraph();
 }
 
 EBISLevel::~EBISLevel() {}
