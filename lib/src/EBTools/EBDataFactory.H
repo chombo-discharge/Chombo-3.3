@@ -52,7 +52,7 @@ public:
   ///return true if copy and construction are thread safe--NOT TRUE HERE
   virtual bool threadSafe() const
   {
-    return false;
+    return true;
   }
 private:
 

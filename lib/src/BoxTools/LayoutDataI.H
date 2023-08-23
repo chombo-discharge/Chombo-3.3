@@ -139,17 +139,21 @@ inline void LayoutData<T>::allocate()
   DataIterator it(dataIterator());
   m_vector.resize(it.size(), NULL);
 
-  for (; it.ok(); ++it)
-  {
-    unsigned int index = it().datInd();
+  const int nbox = it.size();
+#pragma omp parallel for schedule(runtime)
+  //  for (; it.ok(); ++it)
+  for (int mybox = 0; mybox < nbox; mybox++) {
+
+    //    unsigned int index = it().datInd();
+    unsigned int index = it[mybox].datInd();    
     if (m_vector[index] == NULL)
-    {
-      m_vector[index] = new T;
-      if (m_vector[index] == NULL)
       {
-        MayDay::Error("OutOfMemory in LayoutData::allocate");
+	m_vector[index] = new T;
+	if (m_vector[index] == NULL)
+	  {
+	    MayDay::Error("OutOfMemory in LayoutData::allocate");
+	  }
       }
-    }
   }
 }
 

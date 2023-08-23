@@ -109,14 +109,20 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
     CH_TIME("LocalDataDefine");
     localData.define(a_grids, 1, ivghostdata, dataFact);
   }
+
+  const DataIterator& dit = a_grids.dataIterator();
+  const int nbox = dit.size();
   {
     CH_TIME("EBDataCreate");
-  for (DataIterator dit= a_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      Box localBox = grow(a_grids.get(dit()), a_nghost);
+
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < nbox; mybox++) {
+      const DataIndex& din = dit[mybox];
+      
+      Box localBox = grow(a_grids.get(din), a_nghost);
       localBox &= m_domain;
-      localData[dit()].defineVoFData(localGraph[dit()], localBox);
-      localData[dit()].defineFaceData(localGraph[dit()],localBox);
+      localData[din].defineVoFData(localGraph[din], localBox);
+      localData[din].defineFaceData(localGraph[din],localBox);
     }
   {
     CH_TIME("ebdata copyto");
@@ -134,11 +140,14 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
   //define the layouts data with the ghosted layout.  this includes
   //the problem domain stuff
   m_ebisBoxes.define(m_blGhostDom);
-  for (DataIterator dit= a_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      const EBGraph& graphlocal = localGraph[dit()];
+
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < nbox; mybox++) {
+      const DataIndex& din = dit[mybox];  
+
+      const EBGraph& graphlocal = localGraph[din];
       Box graphregion=  graphlocal.getRegion();
-      m_ebisBoxes[dit()].define(localGraph[dit()], localData[dit()], dit());
+      m_ebisBoxes[din].define(localGraph[din], localData[din], din);
     }
   }
   m_defined = true;
