@@ -1641,18 +1641,24 @@ EBArith::defineCFIVS(LayoutData<IntVectSet>&   a_cfivs,
                      const ProblemDomain&      a_probDom)
 {
   a_cfivs.define(a_grids);
-  for (DataIterator dit = a_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      Box grownBox = grow(a_grids.get(dit()), 1);
-      grownBox &= a_probDom;
-      a_cfivs[dit()] = IntVectSet(grownBox);
 
-      NeighborIterator nit(a_grids);
-      for (nit.begin(dit()); nit.ok(); ++nit)
-        {
-          a_cfivs[dit()] -= a_grids[nit()];
-	}
-    }
+  const DataIterator& dit = a_grids.dataIterator();
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) {
+    const DataIndex& din = dit[mybox];
+
+    Box grownBox = grow(a_grids.get(din), 1);
+    grownBox &= a_probDom;
+    a_cfivs[din] = IntVectSet(grownBox);
+
+    NeighborIterator nit(a_grids);
+    for (nit.begin(din); nit.ok(); ++nit)
+      {
+	a_cfivs[din] -= a_grids[nit()];
+      }
+  }
 }
 
 Real
