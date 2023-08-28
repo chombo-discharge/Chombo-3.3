@@ -94,7 +94,7 @@ Real CFArrayBox::norm(const Box& a_subbox,
         }
 #ifdef CH_COUNT_FLOPS
       // 4 flops for std::abs(a+b*i) = sqrt(a*a + b*b)
-      ch_flops()+=4*np*a_numcomp;
+      //ch_flops()+=4*np*a_numcomp;
 #endif
       // here it ends
     }
@@ -130,7 +130,7 @@ Real CFArrayBox::norm(const Box& a_subbox,
       // here it ends
 #ifdef CH_COUNT_FLOPS
       // 4 flops for std::abs(a+b*i) = sqrt(a*a + b*b)
-      ch_flops()+=4*np*a_numcomp;
+      //ch_flops()+=4*np*a_numcomp;
 #endif
     }
   else if (a_p == 2)
@@ -241,7 +241,7 @@ Complex CFArrayBox::sumPow(const Box& a_subbox,
   delete [] tmp;
 #ifdef CH_COUNT_FLOPS
   // 6 flops per Complex multplication
-  ch_flops()+=a_subbox.numPts()*a_p*6*a_numcomp;
+  //ch_flops()+=a_subbox.numPts()*a_p*6*a_numcomp;
 #endif
 
   return sum;
@@ -273,7 +273,7 @@ Complex CFArrayBox::dotProduct(const CFArrayBox& a_fab2, const Box& a_box) const
     } EndForTX
 #ifdef CH_COUNT_FLOPS
         // 2 flops per Complex addition, 6 per Complex multiplication
-        ch_flops()+=a_box.numPts()*8*numcomp;
+        //ch_flops()+=a_box.numPts()*8*numcomp;
 #endif
 
   return dot;
@@ -599,7 +599,7 @@ Complex CFArrayBox::sum(int a_comp,
   delete [] _sum_row;
 #ifdef CH_COUNT_FLOPS
   // 2 flops per Complex addition
-  ch_flops()+=2*m_domain.numPts()*a_numcomp;
+  //ch_flops()+=2*m_domain.numPts()*a_numcomp;
 #endif
   return _sum;
 }
@@ -643,7 +643,7 @@ Complex CFArrayBox::sum(const Box& a_subbox,
   delete [] _sum_row;
 #ifdef CH_COUNT_FLOPS
   // 2 flops per Complex addition
-  ch_flops()+=2*a_subbox.numPts()*a_numcomp;
+  //ch_flops()+=2*a_subbox.numPts()*a_numcomp;
 #endif
   return _sum;
 }
@@ -657,7 +657,7 @@ CFArrayBox& CFArrayBox::invert(Complex a_r)
 
 #ifdef CH_COUNT_FLOPS
       // 11 flops per Complex division
-      ch_flops()+=11*m_domain.numPts()*nComp();
+      //ch_flops()+=11*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -672,7 +672,7 @@ CFArrayBox& CFArrayBox::invert(Complex a_r,
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 11 flops per Complex division
-      ch_flops()+=11*m_domain.numPts()*a_numcomp;
+      //ch_flops()+=11*m_domain.numPts()*a_numcomp;
 #endif
 
   return *this;
@@ -690,7 +690,7 @@ CFArrayBox& CFArrayBox::invert(Complex       a_r,
 
 #ifdef CH_COUNT_FLOPS
       // 11 flops per Complex division
-      ch_flops()+=11*a_subbox.numPts()*a_numcomp;
+      //ch_flops()+=11*a_subbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -705,7 +705,7 @@ CFArrayBox& CFArrayBox::negate(const Box& a_subbox,
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex negation
-      ch_flops()+=2*a_subbox.numPts()*a_numcomp;
+      //ch_flops()+=2*a_subbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -720,7 +720,7 @@ CFArrayBox& CFArrayBox::negate(int a_comp,
 
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex negation
-      ch_flops()+=2*m_domain.numPts()*a_numcomp;
+      //ch_flops()+=2*m_domain.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -733,7 +733,7 @@ CFArrayBox& CFArrayBox::negate()
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex negation
-      ch_flops()+=2*m_domain.numPts()*nComp();
+      //ch_flops()+=2*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -749,7 +749,7 @@ CFArrayBox& CFArrayBox::plus(Complex       a_r,
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition
-      ch_flops()+=2*a_subbox.numPts()*a_numcomp;
+      //ch_flops()+=2*a_subbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -764,7 +764,7 @@ CFArrayBox& CFArrayBox::plus(Complex a_r,
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition
-      ch_flops()+=2*m_domain.numPts()*a_numcomp;
+      //ch_flops()+=2*m_domain.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -777,7 +777,7 @@ CFArrayBox& CFArrayBox::operator += (Complex a_r)
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition
-      ch_flops()+=2*m_domain.numPts()*nComp();
+      //ch_flops()+=2*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -790,7 +790,7 @@ CFArrayBox& CFArrayBox::operator += (const CFArrayBox& a_x)
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition
-      ch_flops()+=2*m_domain.numPts()*nComp();
+      //ch_flops()+=2*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -815,7 +815,7 @@ CFArrayBox& CFArrayBox::plus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition, 6 flops per Complex multiplication
-      ch_flops()+=m_domain.numPts()*nComp()*8;
+      //ch_flops()+=m_domain.numPts()*nComp()*8;
 #endif
   return *this;
 }
@@ -833,7 +833,7 @@ CFArrayBox& CFArrayBox::plus(const CFArrayBox& a_src,
 
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition, 6 flops per Complex multiplication
-      ch_flops()+=m_domain.numPts()*nComp()*8;
+      //ch_flops()+=m_domain.numPts()*nComp()*8;
 #endif
   return *this;
 }
@@ -849,7 +849,7 @@ CFArrayBox& CFArrayBox::plus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition
-      ch_flops()+=m_domain.numPts()*a_numcomp*2;
+      //ch_flops()+=m_domain.numPts()*a_numcomp*2;
 #endif
   return *this;
 }
@@ -868,7 +868,7 @@ CFArrayBox& CFArrayBox::plus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition
-      ch_flops()+=a_subbox.numPts()*a_numcomp*2;
+      //ch_flops()+=a_subbox.numPts()*a_numcomp*2;
 #endif
   return *this;
 }
@@ -886,7 +886,7 @@ CFArrayBox& CFArrayBox::plus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition
-      ch_flops()+=a_srcbox.numPts()*a_numcomp*2;
+      //ch_flops()+=a_srcbox.numPts()*a_numcomp*2;
 #endif
   return *this;
 }
@@ -905,7 +905,7 @@ CFArrayBox& CFArrayBox::plus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex addition, 6 flops per Complex multiplication
-      ch_flops()+=a_srcbox.numPts()*a_numcomp*8;
+      //ch_flops()+=a_srcbox.numPts()*a_numcomp*8;
 #endif
   return *this;
 }
@@ -923,7 +923,7 @@ CFArrayBox& CFArrayBox::operator -= (const CFArrayBox& a_x)
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex subtraction
-      ch_flops()+=m_domain.numPts()*nComp()*2;
+      //ch_flops()+=m_domain.numPts()*nComp()*2;
 #endif
   return *this;
 }
@@ -944,7 +944,7 @@ CFArrayBox& CFArrayBox::minus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex subtraction
-      ch_flops()+=m_domain.numPts()*a_numcomp*2;
+      //ch_flops()+=m_domain.numPts()*a_numcomp*2;
 #endif
   return *this;
 }
@@ -963,7 +963,7 @@ CFArrayBox& CFArrayBox::minus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex subtraction
-      ch_flops()+=a_subbox.numPts()*a_numcomp*2;
+      //ch_flops()+=a_subbox.numPts()*a_numcomp*2;
 #endif
   return *this;
 }
@@ -981,7 +981,7 @@ CFArrayBox& CFArrayBox::minus(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Complex subtraction
-      ch_flops()+=a_srcbox.numPts()*a_numcomp*2;
+      //ch_flops()+=a_srcbox.numPts()*a_numcomp*2;
 #endif
   return *this;
 }
@@ -994,7 +994,7 @@ CFArrayBox& CFArrayBox::operator *= (Complex a_r)
   } EndFor
 #ifdef CH_COUNT_FLOPS
      // 6 flops per Complex Complex multiply
-     ch_flops()+=6*m_domain.numPts()*nComp();
+     //ch_flops()+=6*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -1014,7 +1014,7 @@ CFArrayBox& CFArrayBox::mult(Complex a_r,
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 6 flops per Complex Complex multiply
-      ch_flops()+=6*m_domain.numPts()*a_numcomp;
+      //ch_flops()+=6*m_domain.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1030,7 +1030,7 @@ CFArrayBox& CFArrayBox::mult(Complex    a_r,
   } EndFor
 #ifdef CH_COUNT_FLOPS
       // 6 flops per Complex Complex multiply
-      ch_flops()+=6*a_subbox.numPts()*a_numcomp;
+      //ch_flops()+=6*a_subbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1043,7 +1043,7 @@ CFArrayBox& CFArrayBox::operator *= (const CFArrayBox &a_x)
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 6 flops per Complex Complex multiply
-      ch_flops()+=6*m_domain.numPts()*nComp();
+      //ch_flops()+=6*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -1126,7 +1126,7 @@ CFArrayBox& CFArrayBox::mult (const BaseFab<Real> &a_x)
         m_dptr[i]*=p[i];
 #ifdef CH_COUNT_FLOPS
       // 2 flops per Real Complex multiply
-      ch_flops()+=2*m_nvar*m_numpts;
+      //ch_flops()+=2*m_nvar*m_numpts;
 #endif
     }
   else
@@ -1152,7 +1152,7 @@ CFArrayBox& CFArrayBox::mult(const BaseFab<Real>& a_x,
                    [](Complex* a, Real b){(*a)*=b;});
 #ifdef CH_COUNT_FLOPS
   // 2 flops per Real Complex multiply
-  ch_flops()+=2*m_nvar*a_box.numPts();
+  //ch_flops()+=2*m_nvar*a_box.numPts();
 #endif
   return *this;
 } 
@@ -1173,7 +1173,7 @@ CFArrayBox& CFArrayBox::mult(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 6 flops per Complex Complex multiply
-      ch_flops()+=6*m_domain.numPts()*a_numcomp;
+      //ch_flops()+=6*m_domain.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1192,7 +1192,7 @@ CFArrayBox& CFArrayBox::mult(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 6 flops per Complex Complex multiply
-      ch_flops()+=6*a_subbox.numPts()*a_numcomp;
+      //ch_flops()+=6*a_subbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1210,7 +1210,7 @@ CFArrayBox& CFArrayBox::mult(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 6 flops per Complex Complex multiply
-      ch_flops()+=6*a_srcbox.numPts()*a_numcomp;
+      //ch_flops()+=6*a_srcbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1257,7 +1257,7 @@ CFArrayBox& CFArrayBox::operator /= (const CFArrayBox &a_x)
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 11 flops per Complex Complex divide
-      ch_flops()+=11*m_domain.numPts()*nComp();
+      //ch_flops()+=11*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -1278,7 +1278,7 @@ CFArrayBox& CFArrayBox::divide(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 11 flops per Complex Complex divide
-      ch_flops()+=11*m_domain.numPts()*a_numcomp;
+      //ch_flops()+=11*m_domain.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1296,7 +1296,7 @@ CFArrayBox& CFArrayBox::divide(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 11 flops per Complex Complex divide
-      ch_flops()+=11*a_subbox.numPts()*a_numcomp;
+      //ch_flops()+=11*a_subbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1314,7 +1314,7 @@ CFArrayBox& CFArrayBox::divide(const CFArrayBox& a_src,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 11 flops per Complex Complex divide
-      ch_flops()+=11*a_srcbox.numPts()*a_numcomp;
+      //ch_flops()+=11*a_srcbox.numPts()*a_numcomp;
 #endif
   return *this;
 }
@@ -1332,7 +1332,7 @@ axby(const CFArrayBox& a_X, const CFArrayBox& a_Y,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 6 + 6 + 2 = 14 flops each
-      ch_flops()+=14*m_domain.numPts()*nComp();
+      //ch_flops()+=14*m_domain.numPts()*nComp();
 #endif
   return *this;
 }
@@ -1352,7 +1352,7 @@ axby(const CFArrayBox& a_X, const CFArrayBox& a_Y,
   } EndForTX
 #ifdef CH_COUNT_FLOPS
       // 6 + 6 + 2 = 14 flops each
-      ch_flops()+=14*m_domain.numPts();
+      //ch_flops()+=14*m_domain.numPts();
 #endif
   return *this;
 }

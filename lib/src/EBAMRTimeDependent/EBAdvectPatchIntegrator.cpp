@@ -238,7 +238,7 @@ consUndividedDivergence(BaseIVFAB<Real>&       a_divF,
                       Real faceFlux = fluxDir(face, ivar);
                       update += isign*areaFrac*faceFlux/m_dx[idir];
                     }
-                  ch_flops()+=faces.size()*4; 
+                  //ch_flops()+=faces.size()*4; 
                 }
             }
 
@@ -284,7 +284,7 @@ consUndividedDivergence(BaseIVFAB<Real>&       a_divF,
                       Real faceFlux = fluxDir(face, ivar);
                       update += isign*areaFrac*faceFlux/m_dx[idir];
                     }
-                  ch_flops()+=faces.size()*4; 
+                  //ch_flops()+=faces.size()*4; 
                 }
             }
 
@@ -340,7 +340,7 @@ kappaDivergenceFlux(EBCellFAB&       a_kappaDivF,
             Real faceFlux = fluxDir(face, ivar);
             update += isign*areaFrac*faceFlux/m_dx[idir];
           }
-          ch_flops()+=faces.size()*4; 
+          //ch_flops()+=faces.size()*4; 
         }
       }
 
@@ -405,7 +405,7 @@ interpolateFluxToCentroids(BaseIFFAB<Real>              a_centroidFlux[SpaceDim]
                 }
               fluxDir(centFace, ivar) = newFlux;
             }
-          ch_flops()+=sten.size()*nflux*2; 
+          //ch_flops()+=sten.size()*nflux*2; 
         }
     }
 }
@@ -793,7 +793,7 @@ slope(EBCellFAB&       a_slopePrim,
                           rsign = -1.0;
                         }
                       dqSec = rsign*Min(Abs(dqc), Abs(dql));
-                      ch_flops()+=5;
+                      //ch_flops()+=5;
                     }
                   else
                     {
@@ -811,7 +811,7 @@ slope(EBCellFAB&       a_slopePrim,
                           rsign = -1.0;
                         }
                       dqSec = rsign*Min(Abs(dqc), Abs(dqr));
-                      ch_flops()+=4;
+                      //ch_flops()+=4;
                     }
                   else
                     {
@@ -2617,17 +2617,17 @@ pointGetSlopesUpwind(Real&            a_dql,
   if (a_hasFacesLeft)
     {
       a_dql = valCent - valLeft;
-      ch_flops()+=1; 
+      //ch_flops()+=1; 
     }
   if (a_hasFacesRigh)
     {
       a_dqr = valRigh - valCent;
-      ch_flops()+=1; 
+      //ch_flops()+=1; 
     }
   if (a_hasFacesLeft && a_hasFacesRigh)
     {
       a_dqc = 0.5*(a_dql+a_dqr);
-      ch_flops()+=2; 
+      //ch_flops()+=2; 
     }
   else if (!a_hasFacesLeft && !a_hasFacesRigh)
     {
@@ -2728,34 +2728,34 @@ pointGetSlopes(Real&            a_dql,
   if (a_hasFacesLeft)
     {
       a_dql = valCent - valLeft;
-      ch_flops()+=1; 
+      //ch_flops()+=1; 
     }
   if (a_hasFacesRigh)
     {
       a_dqr = valRigh - valCent;
-      ch_flops()+=1; 
+      //ch_flops()+=1; 
     }
   if (a_hasFacesLeft && a_hasFacesRigh)
     {
       a_dqc = 0.5*(a_dql+a_dqr);
-      ch_flops()+=2; 
+      //ch_flops()+=2; 
       if (m_useLimiting)
         {
           Real dqmin = Min(Abs(a_dql)*2.0,Abs(a_dqr)*2.0);
           if (a_dql*a_dqr < 0.)
             {
               dqmin = 0.;
-              ch_flops()+=6; 
+              //ch_flops()+=6; 
             }
           if (a_dqc < 0.)
             {
               a_dqc = -Min(dqmin,Abs(a_dqc));
-              ch_flops()+=7; 
+              //ch_flops()+=7; 
             }
           else
             {
               a_dqc = Min(dqmin,Abs(a_dqc));
-              ch_flops()+=7; 
+              //ch_flops()+=7; 
             }
         }
     }
@@ -3119,7 +3119,7 @@ upwindSlope(EBCellFAB&       a_slopeUpWi,
               else
                 {
                   dqc = 0.5*(dql+dqr);
-                  ch_flops()+=2;
+                  //ch_flops()+=2;
                 }
 
               a_slopeUpWi(vof, ivar) = dqc;
@@ -3275,7 +3275,7 @@ advectiveDerivative(EBCellFAB&                       a_uDotDelRho,
                         }
                       velLo /=  facesLo.size();
                       rhoLo /=  facesLo.size();
-                      ch_flops()+=facesLo.size()*2+2;
+                      //ch_flops()+=facesLo.size()*2+2;
                     }
                   else
                     {
@@ -3295,7 +3295,7 @@ advectiveDerivative(EBCellFAB&                       a_uDotDelRho,
                         }
                       velHi /=  facesHi.size();
                       rhoHi /=  facesHi.size();
-                      ch_flops()+=facesHi.size()*2+2;
+                      //ch_flops()+=facesHi.size()*2+2;
                     }
                   else
                     {
@@ -3312,7 +3312,7 @@ advectiveDerivative(EBCellFAB&                       a_uDotDelRho,
               a_uDotDelRho(vof, ivar) = uDelRhoPt;
               // if (s_verbose && vof.gridIndex()[0]==12 && vof.gridIndex()[1]==8){pout() << "   uDotDelRho " << uDelRhoPt << endl;}
             }//end loop over variables
-            ch_flops()+=ncomp*SpaceDim*6;
+            //ch_flops()+=ncomp*SpaceDim*6;
         } //if vof is in this box
     }//end loop over vofs
 }

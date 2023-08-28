@@ -101,7 +101,7 @@ apply(dstData_t       & a_lph,
               const Real& phiVal = *(dataPtrsPhi[dataID] + offset);
               lphi += phiVal*weight;
             }
-          ch_flops()+= ebstencil.size()*2;
+          //ch_flops()+= ebstencil.size()*2;
         }
     }
 }

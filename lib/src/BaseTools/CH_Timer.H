@@ -442,7 +442,7 @@ extern std::fstream LBFILE;
 inline void TraceTimer::leafStart()
 {
   if (m_pruned) return;
-  m_flopEnter=ch_flops();
+  //  m_flopEnter=ch_flops();
   ++m_count;
   m_last_WCtime_stamp = ch_ticks();
 }
@@ -451,7 +451,7 @@ inline void TraceTimer::leafStop()
 {
   if (m_pruned) return;
   m_accumulated_WCtime +=  ch_ticks() - m_last_WCtime_stamp;
-  m_flops+=ch_flops()-m_flopEnter;
+  //  m_flops+=ch_flops()-m_flopEnter;
   m_last_WCtime_stamp=0;
 }
 // Pruning options

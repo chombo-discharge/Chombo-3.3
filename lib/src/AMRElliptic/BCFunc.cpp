@@ -491,7 +491,7 @@ void ExtrapolateBC(FArrayBox&      a_state,
           a_state(ivTo, icomp) = ghostVal;
         }
     }
-  ch_flops()+=a_interval.size()*toRegion.numPts()*3;
+  //ch_flops()+=a_interval.size()*toRegion.numPts()*3;
 }
 
 ///

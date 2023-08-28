@@ -485,15 +485,15 @@ void EBStencil::relax(EBCellFAB&             a_phi,
       const Real& rhs = *rhsPtr;
 
       Real denom = a_alpha*alphaWeight + a_beta*betaWeight;
-      ch_flops()+=7; 
+      //ch_flops()+=7; 
       Real lambda = 0;
       if (Abs(denom) > 1.0e-12)
         {
           lambda = a_safety/(denom);
-          ch_flops()+=1; 
+          //ch_flops()+=1; 
         }
       Real lphi = a_alpha*alphaWeight*phi;
-      ch_flops()+=2; 
+      //ch_flops()+=2; 
       //single-valued
       for (int isingle = 0; isingle < ebstencil.single.size(); isingle++)
         {
@@ -501,7 +501,7 @@ void EBStencil::relax(EBCellFAB&             a_phi,
           const Real& phiVal = *(singleValuedPtrPhi + offset);
           const Real& weight = ebstencil.single[isingle].weight;
           lphi += phiVal*weight*a_beta;
-          ch_flops()+=4; 
+          //ch_flops()+=4; 
         }
       //multi-valued
       for (int imulti = 0; imulti < ebstencil.multi.size(); imulti++)
@@ -510,11 +510,11 @@ void EBStencil::relax(EBCellFAB&             a_phi,
           const Real& phiVal = *(multiValuedPtrPhi + offset);
           const Real& weight = ebstencil.multi[imulti].weight;
           lphi += phiVal*weight*a_beta;
-          ch_flops()+=4; 
+          //ch_flops()+=4; 
         }
 
       phi = phi + lambda * (rhs - lphi);
-      ch_flops()+=3; 
+      //ch_flops()+=3; 
     }
   CH_STOP(t3);
 }
@@ -582,15 +582,15 @@ void EBStencil::relaxClone(EBCellFAB&             a_phi,
       const Real& rhs = *rhsPtr;
 
       Real denom = a_alpha*alphaWeight + a_beta*betaWeight;
-      ch_flops()+=8; 
+      //ch_flops()+=8; 
       Real lambda = 0;
       if (Abs(denom) > 1.0e-12)
         {
           lambda = a_safety/(denom);
-          ch_flops()+=1; 
+          //ch_flops()+=1; 
         }
       Real lphi = lambda*a_alpha*alphaWeight*phiOld;
-      ch_flops()+=3; 
+      //ch_flops()+=3; 
       //single-valued
       for (int isingle = 0; isingle < ebstencil.single.size(); isingle++)
         {
@@ -598,7 +598,7 @@ void EBStencil::relaxClone(EBCellFAB&             a_phi,
           const Real& phiVal = *(singleValuedPtrPhiOld + offset);
           const Real& weight = ebstencil.single[isingle].weight;
           lphi += lambda*phiVal*weight*a_beta;
-          ch_flops()+=4; 
+          //ch_flops()+=4; 
         }
       //multi-valued
       for (int imulti = 0; imulti < ebstencil.multi.size(); imulti++)
@@ -607,12 +607,12 @@ void EBStencil::relaxClone(EBCellFAB&             a_phi,
           const Real& phiVal = *(multiValuedPtrPhiOld + offset);
           const Real& weight = ebstencil.multi[imulti].weight;
           lphi += lambda*phiVal*weight*a_beta;
-          ch_flops()+=4; 
+          //ch_flops()+=4; 
         }
 
       //lphi already has lambda multiplied in
       phi = phiOld + lambda*rhs - lphi;
-      ch_flops()+=3; 
+      //ch_flops()+=3; 
     }
   CH_STOP(t3);
 }

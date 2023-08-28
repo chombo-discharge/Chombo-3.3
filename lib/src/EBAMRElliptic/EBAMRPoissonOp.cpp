@@ -1212,14 +1212,14 @@ getDivFStencil(VoFStencil&       a_vofStencil,
               a_vofStencil += fluxStencil;
               CH_STOP(t2);
             }
-          ch_flops()+=faces.size()*5;
+          //ch_flops()+=faces.size()*5;
         }
     }
   CH_START(t3);
   if (s_areaFracWeighted)
     {
       a_vofStencil *= a_ebisBox.areaFracScaling(a_vof);
-      ch_flops()+=1;
+      //ch_flops()+=1;
     }
   CH_STOP(t3);
 }
@@ -1254,7 +1254,7 @@ getFluxStencil(VoFStencil&      a_fluxStencil,
           faceCentSten *= weight;
           a_fluxStencil += faceCentSten;
         }
-      ch_flops()+=interpSten.size()*2;
+      //ch_flops()+=interpSten.size()*2;
     }
   else
     {
@@ -3670,7 +3670,7 @@ levelGSRB(LevelData<EBCellFAB>&       a_phi,
           weight += -2.0 * m_beta * m_invDx2[idir];
         }
       weight = 1.0 / weight;
-      ch_flops()+=SpaceDim*3+1;
+      //ch_flops()+=SpaceDim*3+1;
 
 #pragma omp parallel for 
       for (int mybox=0;mybox<nbox; mybox++)

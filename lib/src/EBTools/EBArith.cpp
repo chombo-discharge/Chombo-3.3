@@ -3125,7 +3125,7 @@ interpolateFluxToCentroids(EBFaceFAB&                  a_centroidFlux,
             }
           a_centroidFlux(face, ivar) = newFlux;
         }
-      ch_flops()+=a_centroidFlux.nComp()*sten.size()*2;
+      //ch_flops()+=a_centroidFlux.nComp()*sten.size()*2;
     }
 }
 /****/

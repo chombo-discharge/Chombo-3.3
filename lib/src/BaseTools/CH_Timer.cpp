@@ -439,7 +439,7 @@ void TraceTimer::report(bool a_closeAfter)
   root.currentize();
   // flop-counting breaks multidim
 
-  root.m_flops=ch_flops();
+  //  root.m_flops=ch_flops();
 
   int numCounters = root.computeRank();
 
@@ -987,7 +987,7 @@ void TraceTimer::start(char* mutex)
   }
 # endif
 
-  m_flopEnter=ch_flops();
+  //m_flopEnter=ch_flops();
 
   ++m_count;
   *mutex = 1;
@@ -1026,7 +1026,7 @@ unsigned long long int TraceTimer::stop(char* mutex)
   unsigned long long int diff = ch_ticks();
   diff -= m_last_WCtime_stamp;
 
-  m_flops+=ch_flops()-m_flopEnter;
+  //m_flops+=ch_flops()-m_flopEnter;
   if (diff > overflowLong) diff = 0;
   m_accumulated_WCtime += diff;
 

@@ -182,12 +182,12 @@ relax(EBCellFAB              & a_phi,
           lphi = a_beta*lphi + a_alpha*alphaWeight*phii;
 
           phii = phii + relco*(rhsi - lphi);
-          ch_flops()+=ebstencil.size()*2+5;
+          //ch_flops()+=ebstencil.size()*2+5;
         }
     }
   //the /ncolor is because this does one color at a time
 //  int ncolor = D_TERM(2, *2, *2);
-  //ch_flops()+=(9*m_ebstencil.size())/ncolor;
+  ////ch_flops()+=(9*m_ebstencil.size())/ncolor;
 }
 
 
@@ -239,7 +239,7 @@ apply(EBCellFAB              & a_lph,
       //multiply by beta and add in identity term
       lphi = a_beta*lphi + a_alpha*alphaWeight*phii;
     }
-  ch_flops()+=m_ebstencil.size()*6;
+  //ch_flops()+=m_ebstencil.size()*6;
 }
 
 #include "NamespaceFooter.H"
