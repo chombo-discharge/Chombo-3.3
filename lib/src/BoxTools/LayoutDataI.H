@@ -117,10 +117,15 @@ inline LayoutData<T>::~LayoutData()
   CH_TIME("~LayoutData");
   if (m_callDelete == true)
   {
-    DataIterator it(dataIterator());
-    for (; it.ok(); ++it)
-    {
-      delete m_vector[it().datInd()];
+
+    DataIterator it(dataIterator());    
+    const int nbox = it.size();
+    
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < nbox; mybox++) {
+
+      unsigned int index = it[mybox].datInd();
+      delete m_vector[index];
     }
   }
 }
@@ -130,21 +135,23 @@ inline void LayoutData<T>::allocate()
 {
   m_callDelete = true;
 
-  for (unsigned int i = 0; i < m_vector.size(); ++i)
+  const int vecSize = m_vector.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int i = 0; i < vecSize; ++i)
   {
     delete m_vector[i];
+    
     m_vector[i] = NULL;
   }
 
   DataIterator it(dataIterator());
-  m_vector.resize(it.size(), NULL);
+  m_vector.resize(it.size(), NULL);    
 
   const int nbox = it.size();
 #pragma omp parallel for schedule(runtime)
-  //  for (; it.ok(); ++it)
   for (int mybox = 0; mybox < nbox; mybox++) {
 
-    //    unsigned int index = it().datInd();
     unsigned int index = it[mybox].datInd();    
     if (m_vector[index] == NULL)
       {

@@ -84,24 +84,56 @@ Copier::Copier(const DisjointBoxLayout& a_level,
 
 void Copier::clear()
 {
-  for (unsigned int i = 0; i < m_localMotionPlan.size(); ++i)
-    {
-      s_motionItemPool.returnPtr( m_localMotionPlan[i] );
-    }
-  for (unsigned int i = 0; i < m_fromMotionPlan.size(); ++i)
-    {
-      s_motionItemPool.returnPtr( m_fromMotionPlan[i] );
-    }
-  for (unsigned int i = 0; i < m_toMotionPlan.size(); ++i)
-    {
-      s_motionItemPool.returnPtr( m_toMotionPlan[i] );
-    }
+  CH_TIMERS("Copier::clear");
+  CH_TIMER("Copier::clear::prepare",t1);  
+  CH_TIMER("Copier::clear::loop1",t2);
+  CH_TIMER("Copier::clear::loop2",t3);
+  CH_TIMER("Copier::clear::loop3",t4);
+  CH_TIMER("Copier::clear::finalize",t5);      
 
+  CH_START(t1);
+  const  int localMotionSize = m_localMotionPlan.size();
+  const  int fromMotionSize = m_fromMotionPlan.size();
+  const  int toMotionSize = m_toMotionPlan.size();
+  CH_STOP(t1);  
+
+// #pragma omp parallel
+//   {
+//     CH_START(t2);
+// #pragma omp for schedule(runtime)
+//     for (int i = 0; i < localMotionSize; ++i)
+//       {
+// 	delete m_localMotionPlan[i];
+// 	//      s_motionItemPool.returnPtr( m_localMotionPlan[i] );
+//       }
+//     CH_STOP(t2);  
+
+//     CH_START(t3);
+// #pragma omp for schedule(runtime)  
+//     for (int i = 0; i < fromMotionSize; ++i)
+//       {
+// 	delete m_fromMotionPlan[i];
+// 	//      s_motionItemPool.returnPtr( m_fromMotionPlan[i] );
+//       }
+//     CH_STOP(t3);  
+
+//     CH_START(t4);
+// #pragma omp for schedule(runtime)  
+//     for (int i = 0; i < toMotionSize; ++i)
+//       {
+// 	delete m_toMotionPlan[i];
+// 	//      s_motionItemPool.returnPtr( m_toMotionPlan[i] );
+//       }
+//     CH_STOP(t4);
+//   }
+
+  CH_START(t5);
   m_localMotionPlan.resize(0);
   m_fromMotionPlan.resize(0);
   m_toMotionPlan.resize(0);
   m_isDefined = false;
   m_buffers.clear();
+  CH_STOP(t5);  
 }
 
 Copier::Copier(const Copier& a_rhs)
@@ -116,19 +148,22 @@ Copier& Copier::operator= (const Copier& b)
   m_localMotionPlan.resize(b.m_localMotionPlan.size());
   for (int i = 0; i < m_localMotionPlan.size(); ++i)
     {
-      m_localMotionPlan[i] = new (s_motionItemPool.getPtr()) MotionItem(*(b.m_localMotionPlan[i]));
+      m_localMotionPlan[i] = new MotionItem(*(b.m_localMotionPlan[i]));      
+      //      m_localMotionPlan[i] = new (s_motionItemPool.getPtr()) MotionItem(*(b.m_localMotionPlan[i]));
     }
 
   m_fromMotionPlan.resize(b.m_fromMotionPlan.size());
   for (int i = 0; i < m_fromMotionPlan.size(); ++i)
     {
-      m_fromMotionPlan[i] = new (s_motionItemPool.getPtr()) MotionItem(*(b.m_fromMotionPlan[i]));
+      m_fromMotionPlan[i] = new MotionItem(*(b.m_fromMotionPlan[i]));      
+      //      m_fromMotionPlan[i] = new (s_motionItemPool.getPtr()) MotionItem(*(b.m_fromMotionPlan[i]));
     }
 
   m_toMotionPlan.resize(b.m_toMotionPlan.size());
   for (int i = 0; i < m_toMotionPlan.size(); ++i)
     {
-      m_toMotionPlan[i] = new (s_motionItemPool.getPtr()) MotionItem(*(b.m_toMotionPlan[i]));
+      m_toMotionPlan[i] = new MotionItem(*(b.m_toMotionPlan[i]));      
+      //      m_toMotionPlan[i] = new (s_motionItemPool.getPtr()) MotionItem(*(b.m_toMotionPlan[i]));
     }
 
   m_isDefined = true;
@@ -149,7 +184,8 @@ void Copier::trimMotion(const DisjointBoxLayout& a_exchangedLayout, const IntVec
           g.grow(d, a_ghost[d]);
           if (g.intersectsNotEmpty(c))
             {
-              MotionItem* it = new (s_motionItemPool.getPtr()) MotionItem(item);
+	      //              MotionItem* it = new (s_motionItemPool.getPtr()) MotionItem(item);
+              MotionItem* it = new MotionItem(item);	      
               a_newItems.push_back(it);
               break;
             }
@@ -308,7 +344,7 @@ void Copier::defineFixedBoxSize(const DisjointBoxLayout& a_src,
             uint64_t h = i.hash(origin, fsize);
             if(h == hash)  { if(a_includeSelf)
               {
-                MotionItem* item = new (s_motionItemPool.getPtr())
+                MotionItem* item = new// (s_motionItemPool.getPtr())
                   MotionItem(dit(), dit(), bghost);
                 m_localMotionPlan.push_back(item);
               }}
@@ -328,7 +364,7 @@ void Copier::defineFixedBoxSize(const DisjointBoxLayout& a_src,
                         if(myprocID == proc) // local copy operation
                           {
                             auto ti0=ch_ticks();
-                            void* spot = s_motionItemPool.getPtr();
+                            void* spot = nullptr;//s_motionItemPool.getPtr();
                             ti+=ch_ticks()-ti0;
                             MotionItem* item = new (spot)
                               MotionItem(dit(), DataIndex(index->second), b & dghost);
@@ -339,14 +375,14 @@ void Copier::defineFixedBoxSize(const DisjointBoxLayout& a_src,
                         else
                           {
                             auto ti0 = ch_ticks();
-                            auto spot = s_motionItemPool.getPtr();
+                            auto spot = nullptr;//s_motionItemPool.getPtr();
                             ti+= ch_ticks() - ti0;
                             MotionItem* item1 = new (spot)
                               MotionItem(dit(), DataIndex(index->second), b & dghost);
                             item1->procID=proc;
                             m_fromMotionPlan.push_back(item1);
                             ti0 = ch_ticks();
-                            spot = s_motionItemPool.getPtr();
+                            spot = nullptr;//s_motionItemPool.getPtr();
                             ti+= ch_ticks() - ti0;
                             MotionItem* item2 = new (spot)
                               MotionItem(DataIndex(index->second), dit(), d & bghost);
@@ -447,7 +483,8 @@ void Copier::defineFixedSizeNodesCollect(const DisjointBoxLayout& a_layout,
                 {
                   if (includeSelf)
                     {
-                      MotionItem* item = new (s_motionItemPool.getPtr())
+		      //                      MotionItem* item = new (s_motionItemPool.getPtr())
+                      MotionItem* item = new 
                         MotionItem(dit(), // source
                                    dit(), // dest
                                    thisGhostMinNodes); // region
@@ -468,7 +505,8 @@ void Copier::defineFixedSizeNodesCollect(const DisjointBoxLayout& a_layout,
                           Box intersectNodes = nbrGhostSrcNodes & thisGhostDstNodes;
                           unsigned int nbrProc = a_layout.procID(nbr);
                           // Copy intersectNodes from nbr patch to this patch.
-                          MotionItem* item = new (s_motionItemPool.getPtr())
+			  //                          MotionItem* item = new (s_motionItemPool.getPtr())
+                          MotionItem* item = new 
                             MotionItem(DataIndex(nbr), // source
                                        dit(), // dest
                                        intersectNodes); // region
@@ -489,7 +527,8 @@ void Copier::defineFixedSizeNodesCollect(const DisjointBoxLayout& a_layout,
                           unsigned int nbrProc = a_layout.procID(nbr);
                           if (thisProc != nbrProc)
                             { // thisProc sends to nbrProc 
-                              MotionItem* item = new (s_motionItemPool.getPtr())
+			      //                              MotionItem* item = new (s_motionItemPool.getPtr())
+                              MotionItem* item = new
                                 MotionItem(dit(), // source
                                            DataIndex(nbr), // dest
                                            intersectNodes); // region
@@ -695,7 +734,8 @@ void Copier::define(const BoxLayout& a_level,
 
         Box destBox = srcBox + a_shift;
 
-        MotionItem* item = new (s_motionItemPool.getPtr())
+	//        MotionItem* item = new (s_motionItemPool.getPtr())
+        MotionItem* item = new 
           MotionItem(fromdi, todi, srcBox, destBox);
         if (item == NULL)
         {
@@ -704,7 +744,8 @@ void Copier::define(const BoxLayout& a_level,
         if (fromProcID == myprocID)
         { // local move
           if (a_exchange && fromdi == todi)
-            s_motionItemPool.returnPtr(item);
+	    //            s_motionItemPool.returnPtr(item);
+	    delete item;
           else
             m_localMotionPlan.push_back(item);
         }
@@ -772,7 +813,8 @@ void Copier::define(const BoxLayout& a_level,
         }
         else
         {
-          MotionItem* item = new (s_motionItemPool.getPtr())
+	  //          MotionItem* item = new (s_motionItemPool.getPtr())
+          MotionItem* item = new 
             MotionItem(fromdi, todi, srcBox, destBox);
           if (item == NULL)
           {
@@ -926,7 +968,8 @@ void Copier::define(const BoxLayout& a_level,
                               intersectBox &= fromBox;
                               Box toBox(intersectBox);
                               toBox.shift(-shiftVect);
-                              MotionItem* item = new (s_motionItemPool.getPtr())
+			      //                              MotionItem* item = new (s_motionItemPool.getPtr())
+                              MotionItem* item = new
                                 MotionItem(DataIndex(from()), DataIndex(toIndex),
                                            intersectBox, toBox);
                               if (item == NULL)
@@ -1004,7 +1047,8 @@ void Copier::define(const BoxLayout& a_level,
                                   intersectBox &= fromBox;
                                   Box toBox(intersectBox);
                                   toBox.shift(-shiftVect);
-                                  MotionItem* item = new (s_motionItemPool.getPtr())
+				  //                                  MotionItem* item = new (s_motionItemPool.getPtr())
+                                  MotionItem* item = new
                                     MotionItem(DataIndex(fromIndex), DataIndex(to()),
                                                intersectBox, toBox);
                                   if (item == NULL)
@@ -1069,22 +1113,32 @@ void Copier::ghostDefine(const DisjointBoxLayout& a_src,
 void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
                             const IntVect& a_ghost, bool a_includeSelf)
 {
-  CH_TIME("Copier::exchangeDefine");
+  CH_TIMERS("Copier::exchangeDefine");
+  CH_TIMER("Copier::exchangeDefine::clear",t1);
+  CH_TIMER("Copier::exchangeDefine::loop",t2);
+  CH_TIMER("Copier::exchangeDefine::append",t3);  
+  CH_START(t1);
+  if(m_isDefined){
   clear();
+  }
+  CH_STOP(t1);  
   DataIterator dit = a_grids.dataIterator();
 
-  int myprocID = procID();
+  const int myprocID = procID();
 
   const int nbox = dit.size();
-  
+
 #pragma omp parallel
   {
     Vector<MotionItem*> localMotionPlan;
     Vector<MotionItem*> fromMotionPlan;
     Vector<MotionItem*> toMotionPlan;
+
+    NeighborIterator nit(a_grids);            
     
 #pragma omp for schedule(runtime) 
     for (int mybox = 0; mybox < nbox; mybox++) {
+      CH_START(t2);
       const DataIndex& din = dit[mybox];
       
       const Box& b = a_grids[din];
@@ -1092,12 +1146,13 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
       bghost.grow(a_ghost);
       if(a_includeSelf)
       {
-        MotionItem* item = new (s_motionItemPool.getPtr())
+	//        MotionItem* item = new (s_motionItemPool.getPtr())
+        MotionItem* item = new
                 MotionItem(din, din, bghost);
         localMotionPlan.push_back(item);
       }
 
-      NeighborIterator nit(a_grids);      
+
       for (nit.begin(din); nit.ok(); ++nit)
         {
           Box neighbor = nit.box();
@@ -1106,7 +1161,8 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
             {
               Box box(neighbor & bghost);
 
-              MotionItem* item = new (s_motionItemPool.getPtr())
+	      //              MotionItem* item = new (s_motionItemPool.getPtr())
+              MotionItem* item = new
                 MotionItem(DataIndex(nit()), din, nit.unshift(box), box);
               if (fromProcID == myprocID)
               { // local move
@@ -1122,22 +1178,28 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
           if (neighbor.intersectsNotEmpty(b) && fromProcID != myprocID)
             {
               Box box(neighbor & b);
-              MotionItem* item = new (s_motionItemPool.getPtr())
+	      //              MotionItem* item = new (s_motionItemPool.getPtr())
+              MotionItem* item = new
                 MotionItem(din, DataIndex(nit()), box, nit.unshift(box) );
               item->procID = fromProcID;
               fromMotionPlan.push_back(item);
             }
         }
-
+      CH_STOP(t2);
     }
 #pragma omp critical
     {
+      CH_START(t3);
       m_localMotionPlan.append(localMotionPlan);
       m_fromMotionPlan.append(fromMotionPlan);
-      m_toMotionPlan.append(toMotionPlan);    
+      m_toMotionPlan.append(toMotionPlan);
+      CH_STOP(t3);
     }
   }
+  
   sort();
+
+  m_isDefined=true;
 }
 
 class MotionItemSorter
