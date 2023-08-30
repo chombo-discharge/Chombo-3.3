@@ -1072,20 +1072,33 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
   CH_TIME("Copier::exchangeDefine");
   clear();
   DataIterator dit = a_grids.dataIterator();
-  NeighborIterator nit(a_grids);
+
   int myprocID = procID();
-  for (dit.begin(); dit.ok(); ++dit)
-    {
-      const Box& b = a_grids[dit];
+
+  const int nbox = dit.size();
+  
+#pragma omp parallel
+  {
+    Vector<MotionItem*> localMotionPlan;
+    Vector<MotionItem*> fromMotionPlan;
+    Vector<MotionItem*> toMotionPlan;
+    
+#pragma omp for schedule(runtime) 
+    for (int mybox = 0; mybox < nbox; mybox++) {
+      const DataIndex& din = dit[mybox];
+      
+      const Box& b = a_grids[din];
       Box bghost(b);
       bghost.grow(a_ghost);
       if(a_includeSelf)
       {
         MotionItem* item = new (s_motionItemPool.getPtr())
-                MotionItem(dit(), dit(), bghost);
-        m_localMotionPlan.push_back(item);
-      } 
-      for (nit.begin(dit()); nit.ok(); ++nit)
+                MotionItem(din, din, bghost);
+        localMotionPlan.push_back(item);
+      }
+
+      NeighborIterator nit(a_grids);      
+      for (nit.begin(din); nit.ok(); ++nit)
         {
           Box neighbor = nit.box();
           int fromProcID = a_grids.procID(nit());
@@ -1094,15 +1107,15 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
               Box box(neighbor & bghost);
 
               MotionItem* item = new (s_motionItemPool.getPtr())
-                MotionItem(DataIndex(nit()), dit(), nit.unshift(box), box);
+                MotionItem(DataIndex(nit()), din, nit.unshift(box), box);
               if (fromProcID == myprocID)
               { // local move
-                m_localMotionPlan.push_back(item);
+                localMotionPlan.push_back(item);
               }
               else
               {
                 item->procID = fromProcID;
-                m_toMotionPlan.push_back(item);
+                toMotionPlan.push_back(item);
               }
             }
           neighbor.grow(a_ghost);
@@ -1110,13 +1123,20 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
             {
               Box box(neighbor & b);
               MotionItem* item = new (s_motionItemPool.getPtr())
-                MotionItem(dit(), DataIndex(nit()), box, nit.unshift(box) );
+                MotionItem(din, DataIndex(nit()), box, nit.unshift(box) );
               item->procID = fromProcID;
-              m_fromMotionPlan.push_back(item);
+              fromMotionPlan.push_back(item);
             }
         }
 
     }
+#pragma omp critical
+    {
+      m_localMotionPlan.append(localMotionPlan);
+      m_fromMotionPlan.append(fromMotionPlan);
+      m_toMotionPlan.append(toMotionPlan);    
+    }
+  }
   sort();
 }
 
