@@ -419,10 +419,11 @@ void ParticleData<P>::remapOutcast()
   CH_TIMERS("ParticleData::remapOutcast"); // barrier before this
 
   // this proc id
+  const unsigned nProc = numProc();
   const unsigned myPID = procID();
 
   // storage for particles to be delivered to each box/proc
-  vector<map<unsigned, List<P> > > pp(numProc());
+  vector<map<unsigned, List<P> > > pp(nProc);
   CompCounts<P> compCounts(pp);
 
   BoxLayout grids = getBoxes();
@@ -497,7 +498,7 @@ void ParticleData<P>::remapOutcast()
                   pp[myPID][lit->second].transfer(pi);
                 }
 #ifdef CH_MPI
-              else if (ip==rit.first->first)
+              else if (ip==rit.first->first && nProc > 1)
                 {
                   pit = min_element(rit.first,rit.second,compCounts);
                   pp[pit->second.pid][pit->second.idx].transfer(pi);
@@ -505,7 +506,7 @@ void ParticleData<P>::remapOutcast()
                 }
               else
                 {
-                  if (mip.count(ip)>0)
+                  if (mip.count(ip)>0 && nProc > 1)
                     {
                       rit=mip.equal_range(ip);
                       pit= min_element(rit.first,rit.second,compCounts);
