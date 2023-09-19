@@ -420,11 +420,17 @@ void ParticleData<P>::remapOutcast()
   CH_TIMER("ParticleData::remapOutcast::entry_barrier", t_init_barrier);  
   CH_TIMER("ParticleData::remapOutcast::grid_loop1", t_li1);
   CH_TIMER("ParticleData::remapOutcast::rotate", t_rotate);
-  CH_TIMER("ParticleData::remapOutcast::build_map", t_build_map);
+  CH_TIMER("ParticleData::remapOutcast::build_map_1", t_build_map1);
+  CH_TIMER("ParticleData::remapOutcast::build_map_2", t_build_map2);  
   CH_TIMER("ParticleData::remapOutcast::collect_map", t_collect_map);
   CH_TIMER("ParticleData::remapOutcast::barrier", t_barrier);    
   CH_TIMER("ParticleData::remapOutcast::mpi_scatter", t_scatter);
   CH_TIMER("ParticleData::remapOutcast::final_catenate", t_catenate);
+  CH_TIMER("ParticleData::remapOutcast::transfer0", transfer0);  
+  CH_TIMER("ParticleData::remapOutcast::transfer1", transfer1);
+  CH_TIMER("ParticleData::remapOutcast::transfer2", transfer2);
+  CH_TIMER("ParticleData::remapOutcast::transfer3", transfer3);
+  CH_TIMER("ParticleData::remapOutcast::transfer4", transfer4);    
 
   CH_START(t_init_barrier);
   MPI_Barrier(Chombo_MPI::comm);
@@ -494,42 +500,57 @@ void ParticleData<P>::remapOutcast()
       }
 #endif
       // map particles to local boxes
-      CH_START(t_build_map);
+      CH_START(t_build_map1);
       map<IntVect,unsigned,CompIntVect>::iterator lit=mil.begin();
       // map particles to pid-boxes
       map<IntVect,boxids,CompIntVect>::iterator pit;
 
       pair<RmIt,RmIt> rit=mip.equal_range(mip.begin()->first);
+      CH_STOP(t_build_map1);            
+      CH_START(t_build_map2);      
 
       for (ListIterator<P> pi(p); pi.ok(); )
         {
+	  CH_START(transfer0);
           const IntVect ip=locateBin(pi().position(), dx, m_origin);
+	  CH_STOP(transfer0);	  
           if (ip==lit->first)
             {
+	      CH_START(transfer1);
               pp[myPID][lit->second].transfer(pi);
+	      CH_STOP(transfer1);
             }
           else
             {
+	      CH_START(transfer2);	      
               lit=mil.find(ip);
+	      CH_STOP(transfer2);	      
               if (lit!=mil.end())
                 {
+		  CH_START(transfer2);
                   pp[myPID][lit->second].transfer(pi);
+		  CH_STOP(transfer2);		  
                 }
 #ifdef CH_MPI
               else if (ip==rit.first->first && nProc > 1)
                 {
+		  CH_START(transfer3);
                   pit = min_element(rit.first,rit.second,compCounts);
                   pp[pit->second.pid][pit->second.idx].transfer(pi);
 		  lit=mil.begin();
+		  CH_STOP(transfer3);		  
                 }
               else
                 {
+
                   if (mip.count(ip)>0 && nProc > 1)
                     {
+		      CH_START(transfer4);		      
                       rit=mip.equal_range(ip);
                       pit= min_element(rit.first,rit.second,compCounts);
                       pp[pit->second.pid][pit->second.idx].transfer(pi);
 		      lit=mil.begin();
+		      CH_STOP(transfer4);		      		      
                     }
                   else ++pi;
                 }
@@ -538,7 +559,7 @@ void ParticleData<P>::remapOutcast()
 #endif
             }
         }
-      CH_STOP(t_build_map);      
+      CH_STOP(t_build_map2);      
     }
 
   // collect local mapping
