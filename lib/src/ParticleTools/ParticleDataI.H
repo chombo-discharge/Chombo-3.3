@@ -417,6 +417,18 @@ template <class P>
 void ParticleData<P>::remapOutcast()
 {
   CH_TIMERS("ParticleData::remapOutcast"); // barrier before this
+  CH_TIMER("ParticleData::remapOutcast::entry_barrier", t_init_barrier);  
+  CH_TIMER("ParticleData::remapOutcast::grid_loop1", t_li1);
+  CH_TIMER("ParticleData::remapOutcast::rotate", t_rotate);
+  CH_TIMER("ParticleData::remapOutcast::build_map", t_build_map);
+  CH_TIMER("ParticleData::remapOutcast::collect_map", t_collect_map);
+  CH_TIMER("ParticleData::remapOutcast::barrier", t_barrier);    
+  CH_TIMER("ParticleData::remapOutcast::mpi_scatter", t_scatter);
+  CH_TIMER("ParticleData::remapOutcast::final_catenate", t_catenate);
+
+  CH_START(t_init_barrier);
+  MPI_Barrier(Chombo_MPI::comm);
+  CH_STOP(t_init_barrier);  
 
   // this proc id
   const unsigned nProc = numProc();
@@ -436,6 +448,8 @@ void ParticleData<P>::remapOutcast()
       set<IntVect,CompIntVect> bivs;
       map<IntVect,unsigned,CompIntVect> mil;
       multimap<IntVect,boxids,CompIntVect>   mip;
+
+      CH_START(t_li1);
       for (LayoutIterator li = grids.layoutIterator(); li.ok(); ++li)
         {
           // shrink box to get valid region
@@ -458,9 +472,11 @@ void ParticleData<P>::remapOutcast()
           mil[biv] = grids.index(li());
 #endif
         }
+      CH_STOP(t_li1);      
 #ifdef CH_MPI
       // rotate
       {
+	CH_START(t_rotate);
         set<IntVect,CompIntVect>::iterator it;
         for ( it=bivs.begin() ; it != bivs.end(); ++it )
           {
@@ -474,9 +490,11 @@ void ParticleData<P>::remapOutcast()
                 myrotate(rit.first,mid,rit.second);
               }
           }
+	CH_STOP(t_rotate);	
       }
 #endif
       // map particles to local boxes
+      CH_START(t_build_map);
       map<IntVect,unsigned,CompIntVect>::iterator lit=mil.begin();
       // map particles to pid-boxes
       map<IntVect,boxids,CompIntVect>::iterator pit;
@@ -520,9 +538,11 @@ void ParticleData<P>::remapOutcast()
 #endif
             }
         }
+      CH_STOP(t_build_map);      
     }
 
   // collect local mapping
+  CH_START(t_collect_map);
   map<unsigned,List<P> > lp;
   typename map<unsigned,List<P> >::iterator mi;
   for (mi=pp[myPID].begin(); mi!=pp[myPID].end(); ++mi)
@@ -530,13 +550,21 @@ void ParticleData<P>::remapOutcast()
       lp[mi->first].catenate(mi->second);
     }
   pp[myPID].clear();
+  CH_STOP(t_collect_map);
+
+  CH_START(t_barrier);
+  MPI_Barrier(Chombo_MPI::comm);
+  CH_STOP(t_barrier);  
 
 #ifdef CH_MPI
   // distribute particles
+  CH_START(t_scatter);
   mpi_scatter_part(lp,pp);
+  CH_STOP(t_scatter);  
 #endif
 
   // finally assign particles to boxes
+  CH_START(t_catenate);
   for (DataIterator di(grids); di.ok(); ++di)
     {
       unsigned idx = grids.index(di());
@@ -545,6 +573,7 @@ void ParticleData<P>::remapOutcast()
           (*this)[di].listItems().catenate(lp[idx]);
         }
     }
+  CH_STOP(t_catenate);  
 }
 
 template <class P>

@@ -27,10 +27,27 @@ using std::map;
 template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
                                          vector<map<unsigned,List<P> > >& a_pp)
 {
+  CH_TIMERS("ParticleData::mpi_scatter_part");
+  CH_TIMER("ParticleData::mpi_scatter_part::initial_barrier",t0);  
+  CH_TIMER("ParticleData::mpi_scatter_part::all_to_all_1",t11);
+  CH_TIMER("ParticleData::mpi_scatter_part::all_to_all_2",t12);
+  CH_TIMER("ParticleData::mpi_scatter_part::all_to_all_barrier",t13);    
+  CH_TIMER("ParticleData::mpi_scatter_part::irecv",t2);
+  CH_TIMER("ParticleData::mpi_scatter_part::isend",t3);
+  CH_TIMER("ParticleData::mpi_scatter_part::waitall",t4);
+  CH_TIMER("ParticleData::mpi_scatter_part::unpack",t5);
+  CH_TIMER("ParticleData::mpi_scatter_part::buffer_delete",t6);            
+  
   CH_assert(a_pp.size()==numProc());
 
+  CH_START(t0);
+  MPI_Barrier(Chombo_MPI::comm);
+  CH_STOP(t0);    
+
+  CH_START(t11);  
   const size_t psize = P().size();
   vector<unsigned int> snd_sizes(numProc(),0), rcv_sizes(numProc(),0);
+
 
   typename map<unsigned int,List<P> >::iterator vi;
   for (int p=0; p<numProc(); p++)
@@ -43,7 +60,14 @@ template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
       // +map keys + list lengths
       snd_sizes[p] += a_pp[p].size() * (sizeof(unsigned int)+sizeof(size_t));
     }
+  CH_STOP(t11);
 
+  CH_START(t13);
+  MPI_Barrier(Chombo_MPI::comm);
+  CH_STOP(t13);  
+
+
+  CH_START(t12);
   int err = MPI_Alltoall(&snd_sizes[0],1,MPI_UNSIGNED,
                          &rcv_sizes[0],1,MPI_UNSIGNED,
                          Chombo_MPI::comm);
@@ -53,7 +77,9 @@ template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
     }
   // sanity check
   CH_assert(rcv_sizes[procID()]==0);
+  CH_STOP(t12);    
 
+  CH_START(t2);
   vector<MPI_Request> rcv_req(numProc()-1);
   vector<char*> rcv_buf(numProc(),NULL);
   int rcv_req_cnt=0;
@@ -72,8 +98,10 @@ template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
   vector<MPI_Request> snd_req(numProc()-1);
   vector<char*> snd_buf(numProc(),NULL);
   int snd_req_cnt=0;
+  CH_STOP(t2);  
 
   // pack up data
+  CH_START(t3);
   for (int p=0; p<numProc(); p++)
     {
       if (snd_sizes[p] > 0)
@@ -99,7 +127,9 @@ template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
           snd_req_cnt++;
         }
     }
+  CH_START(t3);  
 
+  CH_START(t4);
   vector<MPI_Status> rcv_stat(numProc()-1),snd_stat(numProc()-1);
   if (snd_req_cnt>0)
     {
@@ -118,8 +148,10 @@ template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
           MayDay::Error("mpi_scatter_part: receive communication failed");
         }
     }
+  CH_STOP(t4);  
 
   // unpack buffers
+  CH_START(t5);
   for (int p=0; p<numProc(); ++p)
     {
       P q;
@@ -144,14 +176,17 @@ template <class P> void mpi_scatter_part(map<unsigned,List<P> >& a_p,
             }
         }
     }
+  CH_STOP(t5);  
 
   // delete buffers
+  CH_START(t6);
   for (int p=0; p<numProc(); ++p)
     {
       a_pp[p].clear();
       if (snd_sizes[p] > 0) delete[] snd_buf[p];
       if (rcv_sizes[p] > 0) delete[] rcv_buf[p];
     }
+  CH_STOP(t6);  
 }
 
 #include "NamespaceFooter.H"
