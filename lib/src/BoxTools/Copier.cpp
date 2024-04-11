@@ -1074,18 +1074,24 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
   DataIterator dit = a_grids.dataIterator();
   NeighborIterator nit(a_grids);
   int myprocID = procID();
-  for (dit.begin(); dit.ok(); ++dit)
+
+  const int nbox = dit.size();
+
+  //#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      const Box& b = a_grids[dit];
+      const DataIndex& din = dit[mybox];
+      
+      const Box& b = a_grids[din];
       Box bghost(b);
       bghost.grow(a_ghost);
       if(a_includeSelf)
       {
         MotionItem* item = new (s_motionItemPool.getPtr())
-                MotionItem(dit(), dit(), bghost);
+                MotionItem(din, din, bghost);
         m_localMotionPlan.push_back(item);
       } 
-      for (nit.begin(dit()); nit.ok(); ++nit)
+      for (nit.begin(din); nit.ok(); ++nit)
         {
           Box neighbor = nit.box();
           int fromProcID = a_grids.procID(nit());
@@ -1094,7 +1100,7 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
               Box box(neighbor & bghost);
 
               MotionItem* item = new (s_motionItemPool.getPtr())
-                MotionItem(DataIndex(nit()), dit(), nit.unshift(box), box);
+                MotionItem(DataIndex(nit()), din, nit.unshift(box), box);
               if (fromProcID == myprocID)
               { // local move
                 m_localMotionPlan.push_back(item);
@@ -1110,7 +1116,7 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
             {
               Box box(neighbor & b);
               MotionItem* item = new (s_motionItemPool.getPtr())
-                MotionItem(dit(), DataIndex(nit()), box, nit.unshift(box) );
+                MotionItem(din, DataIndex(nit()), box, nit.unshift(box) );
               item->procID = fromProcID;
               m_fromMotionPlan.push_back(item);
             }
