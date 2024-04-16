@@ -405,18 +405,22 @@ EBISLevel::defineGraphFromGeo(LevelData<EBGraph>             & a_graph,
 {
   CH_TIME("EBISLevel::defineGraphFromGeo");
   //define the graph stuff
-  for (DataIterator dit = a_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      Box region = a_grids.get(dit());
-      region.grow(1);
-      Box ghostRegion = grow(region,1);
-      ghostRegion &= a_domain;
-      region &= a_domain;
+  const DataIterator dit = a_grids.dataIterator();
 
-      EBGraph& ebgraph = a_graph[dit()];
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
+    {
+      const DataIndex din = dit[mybox];
+      
+      const Box region = grow(a_grids[din],1) & a_domain;
+      const Box ghostRegion = grow(region, 1) & a_domain;
+
+      EBGraph& ebgraph = a_graph[din];
       GeometryService::InOut inout;
 
-      inout = a_geoserver.InsideOutside(region, a_domain, a_origin, a_dx, dit());
+      inout = a_geoserver.InsideOutside(region, a_domain, a_origin, a_dx, din);
   
       if (inout == GeometryService::Regular)
         {
@@ -429,7 +433,7 @@ EBISLevel::defineGraphFromGeo(LevelData<EBGraph>             & a_graph,
       else
         {
           BaseFab<int>       regIrregCovered(ghostRegion, 1);
-          Vector<IrregNode>&  nodes = a_allNodes[dit()];
+          Vector<IrregNode>&  nodes = a_allNodes[din];
 
           // if (!a_distributedData)
           //   {
@@ -441,7 +445,7 @@ EBISLevel::defineGraphFromGeo(LevelData<EBGraph>             & a_graph,
           //   {
           a_geoserver.fillGraph(regIrregCovered, nodes, region,
                                 ghostRegion, a_domain,
-                                a_origin, a_dx, dit());
+                                a_origin, a_dx, din);
           // }
           ebgraph.buildGraph(regIrregCovered, nodes, region, a_domain);
           
@@ -459,16 +463,19 @@ void EBISLevel::simplifyGraphFromGeo(LevelData<EBGraph>             & a_graph,
   CH_TIME("EBISLevel::simplifyGraphFromGeo");
 
   //define the graph stuff
-  for (DataIterator dit = a_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      Box region = a_grids.get(dit());
-      region.grow(1);
-      Box ghostRegion = grow(region,1);
-      ghostRegion &= a_domain;
-      region &= a_domain;
+  const DataIterator dit = a_grids.dataIterator();
 
-      EBGraph& ebgraph = a_graph[dit()];
-      GeometryService::InOut inout = a_geoserver.InsideOutside(region, a_domain, a_origin, a_dx, dit());
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++)
+    {
+      const DataIndex& din = dit[mybox];
+    
+      const Box region = grow(a_grids[din],1) & a_domain;
+
+      EBGraph& ebgraph = a_graph[din];
+      GeometryService::InOut inout = a_geoserver.InsideOutside(region, a_domain, a_origin, a_dx, din);
 
       if (inout == GeometryService::Regular)
         {
@@ -559,10 +566,17 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
 
   EBDataFactory dataFact;
   m_data.define(m_grids, 1, IntVect::Zero, dataFact);
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      m_data[dit()].define(m_graph[dit()], allNodes[dit()], m_grids.get(dit()));
 
+  const DataIterator& dit = m_grids.dataIterator();
+
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++)
+    {
+      const DataIndex& din = dit[mybox];
+      
+      m_data[din].define(m_graph[din], allNodes[din], m_grids[din]);
     }
 
   if (a_geoserver.canGenerateMultiCells())
@@ -593,14 +607,21 @@ void EBISLevel::fixRegularNextToMultiValued()
 
   m_graph.copyTo(interv, oldGhostGraph, interv);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      CH_TIME("EBISLevel::fixRegularNextToMultiValued_loop1");
-      m_graph[dit()].getRegNextToMultiValued(vofsToChange[dit()],
-                                             oldGhostGraph[dit()]);
+  const DataIterator dit = m_grids.dataIterator();
 
-      m_graph[dit()].addFullIrregularVoFs(vofsToChange[ dit()],
-                                          oldGhostGraph[dit()]);
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++)
+    {
+      const DataIndex& din = dit[mybox];
+      
+      CH_TIME("EBISLevel::fixRegularNextToMultiValued_loop1");
+      m_graph[din].getRegNextToMultiValued(vofsToChange[din],
+                                             oldGhostGraph[din]);
+
+      m_graph[din].addFullIrregularVoFs(vofsToChange[ din],
+                                          oldGhostGraph[din]);
     }
 
   EBDataFactory datafact;
@@ -613,27 +634,32 @@ void EBISLevel::fixRegularNextToMultiValued()
 
   m_graph.copyTo(interv, newGhostGraph, interv);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++)
     {
+      const DataIndex& din = dit[mybox]; 
+
       CH_TIME("EBISLevel::fixRegularNextToMultiValued_loop2");
 
-      Box localBox = m_grids.get(dit());
-      localBox.grow(1);
-      localBox &= m_domain;
-      newGhostData[dit()].defineVoFData(oldGhostGraph[dit()],  localBox);
-      newGhostData[dit()].defineFaceData(oldGhostGraph[dit()], localBox);
+      const Box localBox = grow(m_grids[din],1) & m_domain;
+      
+      newGhostData[din].defineVoFData(oldGhostGraph[din],  localBox);
+      newGhostData[din].defineFaceData(oldGhostGraph[din], localBox);
     }
 
   m_data.copyTo(interv,  newGhostData,  interv);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++)
     {
+      const DataIndex& din = dit[mybox]; 
+
       CH_TIME("EBISLevel::fixRegularNextToMultiValued_loop3");
 
-      m_data[dit() ].addFullIrregularVoFs(vofsToChange[dit()],
-                                          newGhostGraph[dit()],
-                                          newGhostData[dit()].getVolData(),
-                                          oldGhostGraph[dit()]);
+      m_data[din].addFullIrregularVoFs(vofsToChange[din],
+				       newGhostGraph[din],
+				       newGhostData[din].getVolData(),
+				       oldGhostGraph[din]);
     }
 }
 
@@ -861,11 +887,18 @@ void EBISLevel::coarsenVoFs(EBISLevel& a_fineEBIS)
   Interval interv(0,0);
   a_fineEBIS.m_graph.copyTo(interv, fineFromCoarEBGraph, interv);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+  const DataIterator dit = m_grids.dataIterator();
+
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      const EBGraph& fineEBGraph = fineFromCoarEBGraph[dit()];
-      const Box& coarRegion      = m_grids.get(dit());
-      EBGraph& coarEBGraph = m_graph[dit()];
+      const DataIndex din = dit[mybox];
+      
+      const EBGraph& fineEBGraph = fineFromCoarEBGraph[din];
+      const Box& coarRegion      = m_grids[din];
+      EBGraph& coarEBGraph = m_graph[din];
       coarEBGraph.coarsenVoFs(fineEBGraph, coarRegion);
     }
 
@@ -883,24 +916,28 @@ void EBISLevel::coarsenVoFs(EBISLevel& a_fineEBIS)
   EBDataFactory ebdatafact;
   LevelData<EBData> fineFromCoarEBData(fineFromCoarDBL,1, IntVect::Zero, ebdatafact);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++)
     {
-      CH_TIME("EBISLevel::coarsenVoFs_defineData");
+      const DataIndex din = dit[mybox];
 
-      const Box& localBox = fineFromCoarDBL.get(dit());
-      fineFromCoarEBData[dit()].defineVoFData(fineFromCoarEBGraph[dit()],  localBox);
-      fineFromCoarEBData[dit()].defineFaceData(fineFromCoarEBGraph[dit()], localBox);
+      const Box& localBox = fineFromCoarDBL[din];
+      fineFromCoarEBData[din].defineVoFData(fineFromCoarEBGraph[din],  localBox);
+      fineFromCoarEBData[din].defineFaceData(fineFromCoarEBGraph[din], localBox);
     }
 
   a_fineEBIS.m_data.copyTo(interv, fineFromCoarEBData, interv);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      const EBGraph& fineEBGraph =  fineFromCoarEBGraph[dit()];
-      const EBData& fineEBData = fineFromCoarEBData[dit()];
-      const EBGraph& coarEBGraph = coarGhostEBGraph[dit()];
+      const DataIndex din = dit[mybox];
 
-      m_data[dit()].coarsenVoFs(fineEBData, fineEBGraph, coarEBGraph, m_grids.get(dit()));
+      const EBGraph& fineEBGraph =  fineFromCoarEBGraph[din];
+      const EBData& fineEBData = fineFromCoarEBData[din];
+      const EBGraph& coarEBGraph = coarGhostEBGraph[din];
+
+      m_data[din].coarsenVoFs(fineEBData, fineEBGraph, coarEBGraph, m_grids[din]);
     }
 }
 
@@ -959,13 +996,20 @@ void EBISLevel::coarsenFaces(EBISLevel& a_fineEBIS)
     simplifyGraphFromGeo(coarEBGraphGhostLD, *m_geoserver, m_grids, m_domain, m_origin, m_dx);
   }
   
-  m_graph.copyTo(           interv, coarEBGraphGhostLD, interv);
+  m_graph.copyTo(interv, coarEBGraphGhostLD, interv);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+  const DataIterator dit = m_grids.dataIterator();
+
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[dit()];
-      const EBGraph& coarEBGraphGhost = coarEBGraphGhostLD[dit()];
-      EBGraph& coarEBGraph = m_graph[dit()];
+      const DataIndex din = dit[mybox];  
+
+      const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[din];
+      const EBGraph& coarEBGraphGhost = coarEBGraphGhostLD[din];
+      EBGraph& coarEBGraph = m_graph[din];
       coarEBGraph.coarsenFaces(coarEBGraphGhost, fineEBGraphGhost);
     }
   //redefine coarebghostgraphld so i can use the faces for the ebdata
@@ -978,23 +1022,30 @@ void EBISLevel::coarsenFaces(EBISLevel& a_fineEBIS)
 
   EBDataFactory ebdatafact;
   LevelData<EBData> fineEBDataGhostLD(fineFromCoarDBL,1, 2*IntVect::Unit, ebdatafact);
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      Box localBox = grow(fineFromCoarDBL.get(dit()), 2);
+      const DataIndex din = dit[mybox];    
+
+      Box localBox = grow(fineFromCoarDBL.get(din), 2);
       localBox &= a_fineEBIS.m_domain;
-      fineEBDataGhostLD[dit()].defineVoFData(fineEBGraphGhostLD[dit()], localBox);;
-      fineEBDataGhostLD[dit()].defineFaceData(fineEBGraphGhostLD[dit()], localBox);
+      fineEBDataGhostLD[din].defineVoFData(fineEBGraphGhostLD[din], localBox);;
+      fineEBDataGhostLD[din].defineFaceData(fineEBGraphGhostLD[din], localBox);
     }
   a_fineEBIS.m_data.copyTo(interv, fineEBDataGhostLD, interv);
 
-  for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      const EBData&   fineEBData      = fineEBDataGhostLD[dit()];
-      const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[dit()];
-      const EBGraph& coarEBGraphGhost = coarEBGraphGhostLD[dit()];
+      const DataIndex din = dit[mybox];      
 
-      EBData& coarEBData   = m_data[dit()];
-      coarEBData.coarsenFaces(fineEBData,  fineEBGraphGhost, coarEBGraphGhost, m_grids.get(dit()));
+      const EBData&   fineEBData      = fineEBDataGhostLD[din];
+      const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[din];
+      const EBGraph& coarEBGraphGhost = coarEBGraphGhostLD[din];
+
+      EBData& coarEBData   = m_data[din];
+      coarEBData.coarsenFaces(fineEBData,  fineEBGraphGhost, coarEBGraphGhost, m_grids.get(din));
     }
 
 }
