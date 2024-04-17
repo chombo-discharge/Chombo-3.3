@@ -33,9 +33,9 @@ setEBIS(const EBIndexSpace* const a_ebisPtr)
 const ProblemDomain &
 EBISLayout::
 getDomain() const
-  {
-    return m_implem->getDomain();
-  }
+{
+  return m_implem->getDomain();
+}
 /****************/
 bool EBISLayoutImplem::s_verbose = false;
 /****************/
@@ -64,7 +64,7 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
 {
   CH_TIME("EBISLayoutImplem::define");
 #ifdef CH_MPI
-    MPI_Barrier(Chombo_MPI::comm);
+  MPI_Barrier(Chombo_MPI::comm);
 #endif
   m_domain = a_domain;
   m_nghost = a_nghost;
@@ -96,7 +96,8 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
     CH_TIME("LocalGraphDefine");
     localGraph.define(a_grids, 1, ivghostgraph, graphFact);
   }
-  a_graph.copyTo(interv, localGraph, interv);
+  //  a_graph.copyTo(interv, localGraph, interv);
+  a_graph.copyTo(interv, localGraph, interv);  
 
   if (s_verbose)
     {
@@ -111,17 +112,26 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
   }
   {
     CH_TIME("EBDataCreate");
-  for (DataIterator dit= a_grids.dataIterator(); dit.ok(); ++dit)
+
+    const DataIterator dit = a_grids.dataIterator();
+
+    const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < nbox; mybox++)
+      {
+	const DataIndex din = dit[mybox];
+	
+	const Box localBox = grow(a_grids[din], a_nghost) & m_domain;
+
+	localData[din].defineVoFData(localGraph[din], localBox);
+	localData[din].defineFaceData(localGraph[din],localBox);
+      }
     {
-      Box localBox = grow(a_grids.get(dit()), a_nghost);
-      localBox &= m_domain;
-      localData[dit()].defineVoFData(localGraph[dit()], localBox);
-      localData[dit()].defineFaceData(localGraph[dit()],localBox);
+      CH_TIME("ebdata copyto");
+      
+      a_data.copyToAndAssumeThreadSafe(interv, localData, interv);
     }
-  {
-    CH_TIME("ebdata copyto");
-  a_data.copyTo(interv, localData, interv);
-  }
   }
 
   if (s_verbose)
@@ -131,15 +141,23 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
     }
   {
     CH_TIME("EBISBoxesDefine");
-  //define the layouts data with the ghosted layout.  this includes
-  //the problem domain stuff
-  m_ebisBoxes.define(m_blGhostDom);
-  for (DataIterator dit= a_grids.dataIterator(); dit.ok(); ++dit)
-    {
-      const EBGraph& graphlocal = localGraph[dit()];
-      Box graphregion=  graphlocal.getRegion();
-      m_ebisBoxes[dit()].define(localGraph[dit()], localData[dit()], dit());
-    }
+    //define the layouts data with the ghosted layout.  this includes
+    //the problem domain stuff
+    m_ebisBoxes.define(m_blGhostDom);
+
+    const DataIterator dit = a_grids.dataIterator();    
+
+    const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < nbox; mybox++)
+      {
+	const DataIndex din = dit[mybox];    
+
+	const EBGraph& graphlocal = localGraph[din];
+	Box graphregion=  graphlocal.getRegion();
+	m_ebisBoxes[din].define(localGraph[din], localData[din], din);
+      }
   }
   m_defined = true;
 }
@@ -344,9 +362,9 @@ EBISLayoutImplem::setMaxCoarseningRatio(const int&                a_maxCoarsen,
 /****************/
 const EBISBox&
 EBISLayout::operator[](const DataIndex& a_index) const
-  {
-    return m_implem->operator[](a_index);
-  }
+{
+  return m_implem->operator[](a_index);
+}
 
 /****************/
 void

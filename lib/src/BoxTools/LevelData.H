@@ -126,6 +126,12 @@ public:
                       LevelData<T>& dest,
                       const Interval& destComps) const;
 
+  virtual void copyToAndAssumeThreadSafe(const Interval& srcComps,
+					 LevelData<T>& dest,
+					 const Interval& destComps) const;
+
+  
+
   /// Simplest case -- assumes source and dest have same interval
   virtual void copyTo(LevelData<T>& dest) const;
 
@@ -301,6 +307,14 @@ protected:
   friend void aliasLevelData<T>(LevelData<T>& a_alias,
                                 LevelData<T>* a_original,
                                 const Interval& a_interval);
+
+  void makeItSoLocalCopyAssumeThreadSafe(
+                const Interval&     a_srcComps,
+                const BoxLayoutData<T>& a_src,
+                BoxLayoutData<T>&   a_dest,
+                const Interval&     a_destComps,
+                const Copier&       a_copier,
+                const LDOperator<T>& a_op = LDOperator<T>()) const;  
 
   Copier m_exchangeCopier;
 };

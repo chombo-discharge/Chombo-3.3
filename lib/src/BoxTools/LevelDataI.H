@@ -341,6 +341,48 @@ void LevelData<T>::copyTo(const Interval& srcComps,
   Copier copier(m_disjointBoxLayout, dest.getBoxes(), dest.m_ghost);
   copyTo(srcComps, dest, destComps, copier);
 }
+
+template<class T>
+void LevelData<T>::copyToAndAssumeThreadSafe(const Interval& srcComps,
+					     LevelData<T>& dest,
+					     const Interval& destComps) const
+{
+
+  Copier copier(m_disjointBoxLayout, dest.getBoxes(), dest.m_ghost);
+
+  this->makeItSoBegin(srcComps, *this, dest, destComps, copier);
+  this->makeItSoLocalCopyAssumeThreadSafe(srcComps, *this, dest, destComps, copier);
+  dest.makeItSoEnd(destComps);
+
+}
+
+template<class T>
+void LevelData<T>::makeItSoLocalCopyAssumeThreadSafe(const Interval&   a_srcComps,
+						     const BoxLayoutData<T>& a_src,
+						     BoxLayoutData<T>& a_dest,
+						     const Interval&   a_destComps,
+						     const Copier&     a_copier,
+						     const LDOperator<T>& a_op) const
+{
+
+  CH_TIME("local copying");
+  CopyIterator it(a_copier, CopyIterator::LOCAL);  
+  int items=it.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int n=0; n<items; n++)
+    {
+      const MotionItem& item = it[n];
+
+      a_op.op(a_dest[item.toIndex], item.fromRegion,
+	      a_destComps,
+	      item.toRegion,
+	      a_src[item.fromIndex],
+	      a_srcComps);
+
+
+    }
+}
 //-----------------------------------------------------------------------
 
 //-----------------------------------------------------------------------
