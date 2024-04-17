@@ -96,8 +96,7 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
     CH_TIME("LocalGraphDefine");
     localGraph.define(a_grids, 1, ivghostgraph, graphFact);
   }
-  //  a_graph.copyTo(interv, localGraph, interv);
-  a_graph.copyTo(interv, localGraph, interv);  
+  a_graph.copyTo(interv, localGraph, interv);
 
   if (s_verbose)
     {
@@ -130,7 +129,8 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
     {
       CH_TIME("ebdata copyto");
       
-      a_data.copyToAndAssumeThreadSafe(interv, localData, interv);
+      a_data.copyToAndAssumeThreadSafe(interv, localData, interv); // Hacked version. 
+      //      a_data.copyTo(interv, localData, interv); // Original version. 
     }
   }
 
