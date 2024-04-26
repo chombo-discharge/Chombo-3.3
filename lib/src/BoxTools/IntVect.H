@@ -115,14 +115,14 @@ public:
      Returns a modifiable lvalue reference to the <i>i</i>'th coordinate of the
      IntVect.
   */
-  inline
+  inline constexpr
   int& operator[] (int i);
 
   ///
   /**
      Returns the <i>i</i>'th coordinate of the IntVect.
   */
-  inline
+  inline constexpr
   int operator[] (int i) const;
 
   ///
@@ -800,7 +800,7 @@ IntVect::IntVect (const int *a)
 //}
 
 inline
-int&
+constexpr int&
 IntVect::operator[] (int i)
 {
   CH_assert(i>=0 && i < SpaceDim);
@@ -808,7 +808,7 @@ IntVect::operator[] (int i)
 }
 
 inline
-int
+constexpr int
 IntVect::operator[] (int i) const
 {
   CH_assert(i>=0 && i < SpaceDim);
