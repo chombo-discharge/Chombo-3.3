@@ -895,7 +895,7 @@ IntVect::operator>= (const IntVect& p) const
 }
 
 inline
-bool
+constexpr bool
 IntVect::lexLT (const IntVect &s) const
 
 {
