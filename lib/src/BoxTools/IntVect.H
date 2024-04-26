@@ -697,13 +697,14 @@ protected:
 #include "NamespaceFooter.H"
 
 
-// namespace std { template <> inline constexpr bool less<CH_XD::IntVect>::operator()(const CH_XD::IntVect& a, const CH_XD::IntVect& b) const { return a.lexLT(b);}
-// }
-
+#if CXXSTD>=14
 // C++14 version
 namespace std { template <> inline constexpr bool less<CH_XD::IntVect>::operator()(const CH_XD::IntVect& a, const CH_XD::IntVect& b) const { return a.lexLT(b);}
 }
-
+#else
+namespace std { template <> inline bool less<CH_XD::IntVect>::operator()(const CH_XD::IntVect& a, const CH_XD::IntVect& b) const { return a.lexLT(b);}
+}
+#endif
 
 #include "BaseNamespaceHeader.H"
 
