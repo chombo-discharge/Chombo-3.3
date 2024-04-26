@@ -234,7 +234,7 @@ public:
      in 3-D:<br>
      (iv1[0] < iv2[0]) || (iv1[0]==iv2[0] && ((iv1[1] < iv2[1] || ((iv1[1] == iv2[1]) && (iv1[2] < iv2[2])))));
   */
-  bool lexLT (const IntVect& s) const;
+  constexpr bool lexLT (const IntVect& s) const;
 
   ///
   /**
