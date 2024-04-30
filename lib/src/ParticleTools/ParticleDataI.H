@@ -200,9 +200,16 @@ void ParticleData<P>::clear()
 {
   if (m_isDefined)
     {
-      for (DataIterator di=this->dataIterator(); di.ok(); ++di)
+      const DataIterator dit = this->dataIterator();
+
+      const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+      for (int mybox = 0; mybox < nbox; mybox++) 
         {
-          (*this)[di].listItems().clear();
+	  const DataIndex din = dit[mybox];
+	  
+          (*this)[din].listItems().clear();
         }
       m_outcast.clear();
     }
@@ -215,10 +222,19 @@ size_t ParticleData<P>::numParticlesLocal() const
   else
     {
       size_t numParticles = 0;
-      for (DataIterator di=this->dataIterator(); di.ok(); ++di)
+
+      const DataIterator dit = this->dataIterator();
+
+      const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime) reduction(+: numParticles)
+      for (int mybox = 0; mybox < nbox; mybox++) 
         {
-          numParticles += (*this)[di].numItems();
+	  const DataIndex din = dit[mybox];      
+
+          numParticles += (*this)[din].numItems();
         }
+      
       numParticles +=m_outcast.length();
 
       return numParticles;
@@ -261,9 +277,17 @@ size_t ParticleData<P>::numValidLocal() const
   else
     {
       size_t numValid = 0;
-      for (DataIterator di=this->dataIterator(); di.ok(); ++di)
+
+      const DataIterator dit = this->dataIterator();
+
+      const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime) reduction(+: numValid)
+      for (int mybox = 0; mybox < nbox; mybox++) 
         {
-          numValid += (*this)[di].numItems();
+	  const DataIndex din = dit[mybox];            
+
+          numValid += (*this)[din].numItems();
         }
       return numValid;
     }
@@ -406,11 +430,25 @@ template <class P>
 void ParticleData<P>::gatherOutcast()
 {
   BoxLayout grids = getBoxes();
-  for (DataIterator dit(grids); dit.ok(); ++dit)
+  const DataIterator dit = grids.dataIterator();
+
+  const int nbox = dit.size();
+#pragma omp parallel
+  {
+    List<P> outcast;
+#pragma omp for schedule(runtime)
+    for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      (*this)[dit].getInvalidDestructive(m_outcast,
-					 grids[dit]);
+      const DataIndex din = dit[mybox];
+      
+      (*this)[din].getInvalidDestructive(outcast,
+					 grids[din]);
     }
+#pragma omp critical
+    {
+      m_outcast.catenate(outcast);
+    }
+  }
 }
 
 template <class P>
@@ -537,12 +575,19 @@ void ParticleData<P>::remapOutcast()
 #endif
 
   // finally assign particles to boxes
-  for (DataIterator di(grids); di.ok(); ++di)
+  const DataIterator dit = grids.dataIterator();
+
+  const int nbox = dit.size();
+
+#pragma omp parallel for schedule(runtime)
+  for (int mybox = 0; mybox < nbox; mybox++) 
     {
-      unsigned idx = grids.index(di());
+      const DataIndex din = dit[mybox];
+      
+      unsigned idx = grids.index(din);
       if (lp.find(idx) != lp.end())
         {
-          (*this)[di].listItems().catenate(lp[idx]);
+          (*this)[din].listItems().catenate(lp[idx]);
         }
     }
 }
