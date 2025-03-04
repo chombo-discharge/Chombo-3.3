@@ -129,6 +129,7 @@ export USE_64
 export USE_CCSE
 export USE_COMPLEX
 export USE_EB
+export USE_RZ
 export USE_EXTNAME
 export USE_FEATURE
 export USE_FFTW
@@ -271,6 +272,7 @@ $(subst FALSE,,$(subst TRUE,-DCH_USE_SETVAL,$(USE_SETVAL)))\
 $(subst FALSE,,$(subst TRUE,-DCH_USE_COMPLEX,$(USE_COMPLEX)))\
 $(subst FALSE,,$(subst TRUE,-DCH_NAMESPACE,$(NAMESPACE)))\
 $(subst FALSE,,$(subst TRUE,-DCH_USE_EB,$(USE_EB)))\
+$(subst FALSE,,$(subst TRUE,-DCH_USE_RZ,$(USE_RZ)))\
 $(subst FALSE,,$(subst TRUE,-DCH_MULTIDIM,$(MULTIDIM)))\
 $(subst FALSE,,$(subst TRUE,-DCH_USE_MEMORY_TRACKING,$(USE_MT)))\
 $(subst FALSE,,$(subst TRUE,-DCH_COUNT_FLOPS,$(COUNT_FLOPS)))\
