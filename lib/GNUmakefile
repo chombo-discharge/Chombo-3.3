@@ -184,6 +184,8 @@ today  := $(shell date +%d%b%Y)
 ### End of variables.  Beginning of targets.
 ###
 
+.NOTPARALLEL:
+
 .PHONY: usage all lib lib-only test defs doc example example-only tags clean realclean realclean-example \
   check dist distclean dist-noclean doxygen setup vars .vars \
   $(test_targets) $(run_targets) $(lib_targets) run run-tests run-only include regression
