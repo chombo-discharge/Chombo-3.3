@@ -126,6 +126,15 @@ public:
   inline
   Vector<T>& operator=(Vector<T>&& a_invec)
   {
+#ifdef CH_USE_MEMORY_TRACKING
+    // The move frees this vector's own elements, so drop them from the tally. The moved-from source
+    // keeps its own increment: those elements are now owned here and are decremented once, when this
+    // vector is destroyed (the emptied source decrements nothing). Without this the destination's old
+    // size is left on the books forever, so every move-assign onto a non-empty vector inflates the
+    // reported "unfreed memory" by that size with no real allocation behind it.
+    decrement(size());
+#endif
+    
     v=std::move(a_invec.v);
     return *this;
   }
