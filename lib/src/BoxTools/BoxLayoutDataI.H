@@ -336,11 +336,14 @@ void BoxLayoutData<T>::makeItSoEnd(
                                    const Interval&   a_destComps,
                                    const LDOperator<T>& a_op)
 {
-  // Uncomment and Move this out of unpackReceivesToMe()  (ndk)
-  completePendingSends(); // wait for sends from possible previous operation
-
+  // Receives first.  Unpacking is what the caller is actually waiting for, and the
+  // send buffer is a copy made in writeSendDataFromMeIntoBuffers(), so nothing that
+  // is unpacked here can disturb a send that is still in flight.  By the time the
+  // receives have landed the sends have almost always drained too, which takes the
+  // send-side MPI_Waitall off the critical path.
   unpackReceivesToMe(a_destComps, a_op); // nullOp in uniprocessor mode
 
+  completePendingSends(); // wait for this operation's sends to drain
 }
 
 #ifndef CH_MPI
