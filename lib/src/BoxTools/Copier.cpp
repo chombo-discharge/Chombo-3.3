@@ -1139,6 +1139,12 @@ void Copier::exchangeDefine(const DisjointBoxLayout& a_grids,
     }
   }
   sort();
+
+  // clear() at the top of this routine set this false; every other define() sets it true on
+  // the way out and this one did not.  Leaving it false makes isDefined() permanently wrong for
+  // an exchange Copier, and LevelData::exchange() -- whose lazy guard is if(!isDefined()) -- then
+  // rebuilds the whole schedule on every single call.
+  m_isDefined = true;
 }
 
 class MotionItemSorter
