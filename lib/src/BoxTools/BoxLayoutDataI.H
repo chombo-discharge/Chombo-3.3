@@ -750,63 +750,42 @@ void BoxLayoutData<T>::postReceivesToMe() const
 
       }
   }
-  // Lay the requests out group by group -- one group per peer -- and record which
-  // m_toMe entries each group feeds. unpackReceivesToMe() uses that to unpack a peer's
-  // data the moment its message lands.
-  //
-  // The oversized-message chunks used to be collected in a side list and appended after
-  // every other request, which left a group's requests scattered across the array. They
-  // are pushed inline now. The MPI_Irecv call order is unchanged, and matching does not
-  // depend on it in any case: groups differ by source rank and chunks within a group by
-  // tag.
-  const int numGroups = this->m_buff->numReceives;
-
-  m_buff->m_receiveRequests.resize(0);
-  m_buff->m_recvGroups.resize(0);
-  m_buff->m_recvGroupOfRequest.resize(0);
-
+  m_buff->m_receiveRequests.resize(this->m_buff->numReceives);
+  std::list<MPI_Request> extraRequests;
   unsigned int next=0;
   long long maxSize = 0;
-  for (int i=0; i<numGroups; ++i)
+  for (int i=0; i<this->m_buff->numReceives; ++i)
     {
       const CopierBuffer::bufEntry& entry = m_buff->m_toMe[next];
       char*  buffer = (char*)entry.bufPtr;
       size_t bsize = entry.size;
       int idtag=0;
-
-      CopierBuffer::recvGroup group;
-      group.reqBegin  = m_buff->m_receiveRequests.size();
-      group.toMeBegin = next;
-
       while (bsize > CH_MAX_MPI_MESSAGE_SIZE)
       {
-        m_buff->m_receiveRequests.push_back(MPI_Request());
-        m_buff->m_recvGroupOfRequest.push_back(i);
+        extraRequests.push_back(MPI_Request());
         {
           //CH_TIME("MPI_Irecv");
           MPI_Irecv(buffer, CH_MAX_MPI_MESSAGE_SIZE, MPI_BYTE, entry.procID,
-                    idtag, Chombo_MPI::comm, &(m_buff->m_receiveRequests.back()));
+                    idtag, Chombo_MPI::comm, &(extraRequests.back()));
         }
         maxSize = CH_MAX_MPI_MESSAGE_SIZE;
         bsize -= CH_MAX_MPI_MESSAGE_SIZE;
         buffer+=CH_MAX_MPI_MESSAGE_SIZE;
         idtag++;
       }
-      m_buff->m_receiveRequests.push_back(MPI_Request());
-      m_buff->m_recvGroupOfRequest.push_back(i);
       {
         //CH_TIME("MPI_Irecv");
         MPI_Irecv(buffer, bsize, MPI_BYTE, entry.procID,
-                  idtag, Chombo_MPI::comm, &(m_buff->m_receiveRequests.back()));
+                  idtag, Chombo_MPI::comm, &(m_buff->m_receiveRequests[i]));
       }
       ++next;
       maxSize = Max<long long>(bsize, maxSize);
       while (next < m_buff->m_toMe.size() && m_buff->m_toMe[next].size == 0) ++next;
-
-      group.reqCount = m_buff->m_receiveRequests.size() - group.reqBegin;
-      group.toMeEnd  = next;
-      m_buff->m_recvGroups.push_back(group);
     }
+  for (std::list<MPI_Request>::iterator it = extraRequests.begin(); it != extraRequests.end(); ++it)
+  {
+    m_buff->m_receiveRequests.push_back(*it);
+  }
   this->m_buff->numReceives = m_buff->m_receiveRequests.size();
 
   CH_MaxMPIRecvSize = Max<long long>(CH_MaxMPIRecvSize, maxSize);
@@ -820,84 +799,33 @@ void BoxLayoutData<T>::unpackReceivesToMe(
                                           const LDOperator<T>& a_op)
 {
 
-  CH_TIMERS("unpack_messages");
-  CH_TIMER("MPI_Waitsome", t1);
-  CH_TIMER("linearIn", t2);
-
+  CH_TIME("unpack_messages");
+  
   if (this->m_buff->numReceives > 0)
   {
-    // Unpack each peer's data as its message lands, rather than waiting on every peer
-    // and then unpacking everything. The rank is otherwise idle inside a single
-    // MPI_Waitall while data that has already arrived sits untouched, and the exposed
-    // cost is the slowest peer plus the whole unpack rather than the slowest peer alone.
-    //
-    // A group is one peer's message, which postReceivesToMe() has coalesced into one
-    // request -- or several if it exceeded CH_MAX_MPI_MESSAGE_SIZE, hence the pending
-    // count rather than unpacking on the first completion.
-    const int numRequests = this->m_buff->numReceives;
-    const int numGroups   = m_buff->m_recvGroups.size();
-
-    m_buff->m_receiveStatus.resize(numRequests);
-
-    Vector<int> completed(numRequests);
-    Vector<int> pending(numGroups);
-
-    for (int g=0; g<numGroups; ++g)
+    m_buff->m_receiveStatus.resize(this->m_buff->numReceives);
+    int result;
     {
-      pending[g] = m_buff->m_recvGroups[g].reqCount;
+      CH_TIME("MPI_Waitall");
+      result = MPI_Waitall(this->m_buff->numReceives, &(m_buff->m_receiveRequests[0]),
+                             &(m_buff->m_receiveStatus[0]));
+    }
+    if (result != MPI_SUCCESS)
+    {
+      //hell if I know what to do about failed messaging here
+      //maybe a mayday::warning?
     }
 
+    int isize = m_buff->m_toMe.size();
 #ifdef _OPENMP
     bool threadSafe = m_threadSafe && (a_op.threadSafe());
 #endif
-
-    int remaining = numRequests;
-
-    while (remaining > 0)
-    {
-      int outcount = 0;
-      CH_START(t1);
-      const int result = MPI_Waitsome(numRequests, &(m_buff->m_receiveRequests[0]),
-                                      &outcount, &(completed[0]),
-                                      &(m_buff->m_receiveStatus[0]));
-      CH_STOP(t1);
-
-      if (result != MPI_SUCCESS)
-      {
-        //hell if I know what to do about failed messaging here
-        //maybe a mayday::warning?
-      }
-
-      // Every request is already inactive -- nothing further can complete.
-      if (outcount == MPI_UNDEFINED)
-      {
-        break;
-      }
-
-      CH_START(t2);
-      for (int k=0; k<outcount; ++k)
-      {
-        const int g = m_buff->m_recvGroupOfRequest[completed[k]];
-
-        pending[g]--;
-
-        if (pending[g] == 0)
-        {
-          const int begin = m_buff->m_recvGroups[g].toMeBegin;
-          const int end   = m_buff->m_recvGroups[g].toMeEnd;
-
 #pragma omp parallel for if(threadSafe)
-          for (int i=begin; i<end; ++i)
-          {
-            const CopierBuffer::bufEntry& entry = m_buff->m_toMe[i];
-            a_op.linearIn(this->operator[](entry.item->toIndex), entry.bufPtr,
-                          entry.item->toRegion, a_destComps);
-          }
-        }
-      }
-      CH_STOP(t2);
-
-      remaining -= outcount;
+    for (unsigned int i=0; i< isize; ++i)
+    {
+      const CopierBuffer::bufEntry& entry = m_buff->m_toMe[i];
+      a_op.linearIn(this->operator[](entry.item->toIndex), entry.bufPtr,
+                    entry.item->toRegion, a_destComps);
     }
   }
   this->m_buff->numReceives = 0;
