@@ -561,7 +561,25 @@ template<class T>
 void LevelData<T>::exchangeBegin(const Copier& copier)
 {
   CH_TIME("exchangeBegin");
+  this->exchangePost(copier);
+  this->exchangeLocal(copier);
+}
+//-----------------------------------------------------------------------
+
+//-----------------------------------------------------------------------
+template<class T>
+void LevelData<T>::exchangePost(const Copier& copier)
+{
+  CH_TIME("exchangePost");
   this->makeItSoBegin(this->interval(), *this, *this, this->interval(), copier);
+}
+//-----------------------------------------------------------------------
+
+//-----------------------------------------------------------------------
+template<class T>
+void LevelData<T>::exchangeLocal(const Copier& copier)
+{
+  CH_TIME("exchangeLocal");
   this->makeItSoLocalCopy(this->interval(), *this, *this, this->interval(), copier);
 }
 //-----------------------------------------------------------------------
@@ -572,6 +590,22 @@ void LevelData<T>::exchangeEnd()
 {
   CH_TIME("exchangeEnd");
   this->makeItSoEnd(this->interval());
+}
+//-----------------------------------------------------------------------
+
+//-----------------------------------------------------------------------
+template<class T>
+const Copier& LevelData<T>::exchangeCopier()
+{
+  CH_TIME("exchangeCopier");
+  // Same lazy define as exchange(const Interval&).  The constructor and define()
+  // already build this for every ghosted LevelData, so this normally just hands
+  // back what is there.
+  if (!m_exchangeCopier.isDefined())
+    {
+      m_exchangeCopier.exchangeDefine(m_disjointBoxLayout, m_ghost);
+    }
+  return m_exchangeCopier;
 }
 //-----------------------------------------------------------------------
 

@@ -170,6 +170,36 @@ public:
   /// finish asynchronous exchange
   virtual void exchangeEnd();
 
+  /// asynchronous exchange start, without the on-rank copies.
+  /**
+     Posts this level's messages and returns.  Unlike exchangeBegin() the
+     on-rank MotionItems are left for a separate exchangeLocal() call, so
+     that a caller with several independent LevelDatas can get all of their
+     messages onto the wire before spending any time on local work.
+
+     exchangePost(copier) followed by exchangeLocal(copier) is exactly
+     exchangeBegin(copier).
+  */
+  virtual void exchangePost(const Copier& copier);
+
+  /// the on-rank half of an exchange.  Does no messaging.
+  /**
+     Valid between exchangePost() and exchangeEnd().
+  */
+  virtual void exchangeLocal(const Copier& copier);
+
+  /// the Copier that exchange() uses, defined on demand.
+  /**
+     Handed out so that a caller can drive exchangeBegin()/exchangePost()
+     with the same schedule exchange() would have built for itself, rather
+     than defining and carrying a second one.
+
+     Only meaningful when ghostVect() != IntVect::Zero.  exchange() is a
+     no-op otherwise and never defines the copier, and callers of this
+     accessor are expected to make the same test.
+  */
+  virtual const Copier& exchangeCopier();
+
   virtual void exchangeNoOverlap(const Copier& copier);
 
   ///
