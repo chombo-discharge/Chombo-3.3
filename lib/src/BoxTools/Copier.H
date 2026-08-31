@@ -112,10 +112,30 @@ public:
       }
   };
 
+  // One posted receive: everything arriving from a single peer.
+  struct recvGroup
+  {
+    int    reqBegin;   // first index into m_receiveRequests carrying this group
+    int    reqCount;   // how many requests carry it; >1 only past CH_MAX_MPI_MESSAGE_SIZE
+    size_t toMeBegin;  // first index into m_toMe that this group's bytes feed
+    size_t toMeEnd;    // one past the last
+  };
+
 #endif
   mutable std::vector<bufEntry> m_fromMe;
   mutable std::vector<bufEntry> m_toMe;
-  mutable std::vector<std::vector<bufEntry> > m_toMeUnpack;
+
+  // Receive groups and the request -> group map, both rebuilt by postReceivesToMe().
+  //
+  // postReceivesToMe() coalesces m_toMe into one message per peer, so a group is a
+  // contiguous run of m_toMe entries whose bytes land in one contiguous slice of
+  // m_recbuffer.  Recording the runs is what lets unpackReceivesToMe() unpack a peer's
+  // data as soon as that peer's message lands, rather than waiting on all of them.
+  //
+  // clear() leaves these alone, as it does m_fromMe and m_toMe: postReceivesToMe()
+  // always runs before unpackReceivesToMe() reads them.
+  mutable std::vector<recvGroup> m_recvGroups;
+  mutable std::vector<int>       m_recvGroupOfRequest;
 
 #ifdef CH_MPI
   mutable Vector<MPI_Request>  m_sendRequests,  m_receiveRequests;
