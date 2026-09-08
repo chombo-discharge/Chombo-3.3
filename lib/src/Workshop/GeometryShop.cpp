@@ -567,6 +567,92 @@ GeometryService::InOut GeometryShop::InsideOutside(const Box&           a_region
 /**********************************************/
 /*********************************************/
 void
+GeometryShop::fillNodeValues(BaseFab<Real>&  a_nodeVals,
+                             const Box&      a_ghostRegion,
+                             const RealVect& a_origin,
+                             const Real&     a_dx) const
+{
+  CH_TIME("GeometryShop::fillNodeValues");
+
+  //this is the same vectDx that InsideOutside derives, so that a cached node
+  //value is the value the per cell corner sampling would have computed
+  RealVect vectDx;
+  if (m_vectDx[0] != 0.0)
+    {
+      vectDx[0] = a_dx;
+      for (int idir = 1; idir < SpaceDim; idir++)
+        {
+          vectDx[idir] = vectDx[0] * m_vectDx[idir] / m_vectDx[0];
+        }
+    }
+  else
+    {
+      vectDx = a_dx * RealVect::Unit;
+    }
+
+  Box nodeBox = a_ghostRegion;
+  nodeBox.surroundingNodes();
+  a_nodeVals.define(nodeBox, 1);
+
+  RealVect physCorner;
+  for (BoxIterator bit(nodeBox); bit.ok(); ++bit)
+    {
+      const IntVect& node = bit();
+      for (int idir = 0; idir < CH_SPACEDIM; ++idir)
+        {
+          physCorner[idir] = vectDx[idir]*node[idir] + a_origin[idir];
+        }
+      a_nodeVals(node, 0) = m_implicitFunction->value(physCorner);
+    }
+}
+
+/*********************************************/
+GeometryService::InOut
+GeometryShop::insideOutsideFromNodes(const IntVect&       a_iv,
+                                     const BaseFab<Real>& a_nodeVals) const
+{
+  //the corner sampling branch of InsideOutside, reading the corner values out of
+  //the cache.  neighbouring cells share corners, so the cache turns 2^D+1
+  //implicit function evaluations per cell into one evaluation per node
+  Box allCorners(a_iv, a_iv);
+  allCorners.surroundingNodes();
+
+  const Real firstValue = a_nodeVals(allCorners.smallEnd(), 0);
+  const Real firstSign  = copysign(1.0, firstValue);
+
+  GeometryService::InOut rtn;
+  if ( firstSign < 0 )
+    {
+      rtn = GeometryService::Regular;
+    }
+  else
+    {
+      rtn = GeometryService::Covered;
+    }
+
+  for (BoxIterator bit(allCorners); bit.ok(); ++bit)
+    {
+      const Real functionValue = a_nodeVals(bit(), 0);
+      const Real functionSign  = copysign(1.0, functionValue);
+
+      if (functionValue == 0 || firstValue == 0)
+        {
+          if (functionSign * firstSign < 0)
+            {
+              return GeometryService::Irregular;
+            }
+        }
+      if (functionValue * firstValue < 0.0 )
+        {
+          return GeometryService::Irregular;
+        }
+    }
+
+  return rtn;
+}
+
+/*********************************************/
+void
 GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
                         Vector<IrregNode>   & a_nodes,
                         const Box           & a_validRegion,
@@ -602,6 +688,17 @@ GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
   IntVectSet ivsirreg = IntVectSet(DenseIntVectSet(a_ghostRegion, false));
   IntVectSet ivsdrop  = IntVectSet(DenseIntVectSet(a_ghostRegion, false));// CP
   long int numCovered=0, numReg=0, numIrreg=0;
+
+  //cache the implicit function at the nodes of the ghost region.  the fast
+  //intersection path and the STL path do not sample corners, so the cache is
+  //only built when neither of them is taken
+  BaseFab<Real> nodeVals;
+  const bool haveNodeCache = (m_stlIF == NULL) &&
+    !m_implicitFunction->fastIntersection(a_ghostRegion, a_domain, a_origin, a_dx);
+  if (haveNodeCache)
+    {
+      fillNodeValues(nodeVals, a_ghostRegion, a_origin, a_dx);
+    }
   CH_STOP(p1);
 
   IntVect ivdeblo(D_DECL(62,510,0));
@@ -618,7 +715,15 @@ GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
         }
 
       Box miniBox(iv, iv);
-      GeometryService::InOut inout = InsideOutside(miniBox, a_domain, a_origin, a_dx);
+      GeometryService::InOut inout;
+      if (haveNodeCache && !m_implicitFunction->fastIntersection(miniBox, a_domain, a_origin, a_dx))
+        {
+          inout = insideOutsideFromNodes(iv, nodeVals);
+        }
+      else
+        {
+          inout = InsideOutside(miniBox, a_domain, a_origin, a_dx);
+        }
 
       if (inout == GeometryService::Covered)
         {
