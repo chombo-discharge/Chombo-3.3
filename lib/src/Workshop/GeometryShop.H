@@ -17,6 +17,7 @@
 #include "RealVect.H"
 #include "Box.H"
 #include "IntVect.H"
+#include "BaseFab.H"
 
 #include "EBISBox.H"
 #include "BaseIF.H"
@@ -119,7 +120,8 @@ public:
                            const RealVect&      a_origin,
                            const Real&          a_dx,
                            const RealVect&      a_vectDx,
-                           const IntVect&       a_iv) const;
+                           const IntVect&       a_iv,
+                           BaseFab<Real>        a_edgeIntercept[SpaceDim]) const;
 
   void
   getFullNodeWithCoveredFace(IrregNode            & a_newNode, 
@@ -194,6 +196,27 @@ private:
                                      const Real&          a_dx,
                                      const Real&          a_originVal) const ;
 
+  ///
+  /**
+     Evaluate the implicit function at every node of a_ghostRegion and store the
+     result in a_nodeVals.  The node coordinates are built with the same
+     expression that InsideOutside uses for its corner coordinates, so a cached
+     value is bit-for-bit the value the uncached path would have computed.
+   */
+  void fillNodeValues(BaseFab<Real>&  a_nodeVals,
+                      const Box&      a_ghostRegion,
+                      const RealVect& a_origin,
+                      const Real&     a_dx) const;
+
+  ///
+  /**
+     Classify the single cell a_iv as regular, covered or irregular from cached
+     nodal implicit function values.  This reproduces the corner sampling branch
+     of InsideOutside without calling the implicit function.
+   */
+  GeometryService::InOut insideOutsideFromNodes(const IntVect&       a_iv,
+                                                const BaseFab<Real>& a_nodeVals) const;
+
   void edgeData3D(edgeMo               a_edges[4],
                   bool&                a_faceCovered,
                   bool&                a_faceRegular,
@@ -204,7 +227,8 @@ private:
                   const RealVect&      a_vectDx,
                   const IntVect&       a_coord,
                   const ProblemDomain& a_domain,
-                  const RealVect&      a_origin) const;
+                  const RealVect&      a_origin,
+                  BaseFab<Real>        a_edgeIntercept[SpaceDim]) const;
 
   void edgeData2D(edgeMo               a_edges[4],
                   bool&                a_faceCovered,
@@ -214,7 +238,8 @@ private:
                   const RealVect&      a_vectDx,
                   const IntVect&       a_coord,
                   const ProblemDomain& a_domain,
-                  const RealVect&      a_origin) const;
+                  const RealVect&      a_origin,
+                  BaseFab<Real>        a_edgeIntercept[SpaceDim]) const;
 
   void edgeType(bool& a_regular,
                 bool& a_covered,

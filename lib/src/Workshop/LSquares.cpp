@@ -302,16 +302,24 @@ void LSquares::allocArray(const int& rows,
                           const int& cols,
                           Real**& A)
 {
+  //the rows are carved out of a single block, so an array costs two allocations rather than one per
+  //row.  every read and write here goes through A[i][j] or walks a pointer inside one row, and
+  //swapRows exchanges elements rather than row pointers, so A[0] always addresses the block
   A = new Real* [rows];
 
-  for (int i = 0; i < rows;i++)
+  if (rows > 0)
     {
-      A[i] = new Real [cols];
-      Real* scanA = A[i];
+      Real* block = new Real [rows*cols];
 
-      for (int j = 0; j < cols; j++)
+      for (int i = 0; i < rows;i++)
         {
-          *(scanA++) = 0.0;
+          A[i] = block + i*cols;
+          Real* scanA = A[i];
+
+          for (int j = 0; j < cols; j++)
+            {
+              *(scanA++) = 0.0;
+            }
         }
     }
 }
@@ -320,9 +328,9 @@ void LSquares::freeArray(const int& rows,
                          const int& cols,
                          Real**& A)
 {
-  for (int i = 0; i < rows; i++)
+  if (rows > 0)
     {
-      delete[] A[i];
+      delete[] A[0];
     }
 
   delete[] A;

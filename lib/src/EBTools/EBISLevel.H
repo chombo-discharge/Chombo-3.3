@@ -88,11 +88,20 @@ public:
   static bool s_distributedData;
   void dumpDebug(const string& a_string);
 
-  void coarsenVoFs(EBISLevel& a_fineEBIS);
+  //a_fineGraph, a_fineData and a_coarGraph are shared with coarsenFaces, see the coarsening
+  //constructor.  they are the fine level graph and data on the refinement of these grids and the
+  //coarse graph on these grids, all with the widest ghost region either step needs
+  void coarsenVoFs(EBISLevel&           a_fineEBIS,
+                   LevelData<EBGraph>&  a_fineGraph,
+                   LevelData<EBData>&   a_fineData,
+                   LevelData<EBGraph>&  a_coarGraph);
 
   void fixFineToCoarse(EBISLevel& a_fineEBIS);
 
-  void coarsenFaces(EBISLevel& a_fineEBIS);
+  void coarsenFaces(EBISLevel&           a_fineEBIS,
+                    LevelData<EBGraph>&  a_fineGraph,
+                    LevelData<EBData>&   a_fineData,
+                    LevelData<EBGraph>&  a_coarGraph);
 
   long long numVoFsOnProc() const;
 

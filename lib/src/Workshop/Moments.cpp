@@ -20,6 +20,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 #include "GeometryService.H"
 #include "GeometryShop.H"
 #include "Moments.H"
@@ -375,9 +376,8 @@ Vector<Real> Moments::momentCalc3D(const int& a_order,
                                    vofMo&     a_vof)
 {
   CH_TIME("momentCalc3D");
-  Vector<IntVect> list(0),listPlus(0);
-  listOfMoments(a_order,list);       // this function knows SpaceDim
-  listOfMoments(a_order+1,listPlus);
+  const Vector<IntVect>& list     = getListOfMoments(a_order);       // these know SpaceDim
+  const Vector<IntVect>& listPlus = getListOfMoments(a_order+1);
 
   Real** A;
   int numRows = listPlus.size()*SpaceDim;
@@ -399,7 +399,6 @@ Vector<Real> Moments::momentCalc3D(const int& a_order,
 
   Vector<Real> rhs(numRows);
   Vector<Real> x(numCols);
-  Vector<Real> answer(numRows);
   Vector<Real> answer2DHi;
   Vector<Real> answer2DLo;
 
@@ -472,9 +471,8 @@ Vector<Real> Moments::momentCalc2D(const int&    a_order,
 
   int faceNormal = a_face.getFaceNormal();
 
-  Vector<IntVect> list(0),listPlus(0);
-  listOfMoments(a_order,list); // this function knows SpaceDim
-  listOfMoments(a_order+1,listPlus);
+  const Vector<IntVect>& list     = getListOfMoments(a_order); // these know SpaceDim
+  const Vector<IntVect>& listPlus = getListOfMoments(a_order+1);
 
   Real** A;
   int numRows = listPlus.size() * 2; // this is a 2 because faces are 2D. If SpaceDim=3 we iterate
@@ -546,6 +544,34 @@ Vector<Real> Moments::momentCalc2D(const int&    a_order,
   tools.freeArray(numRows,numCols,A);
 
   return x;
+}
+
+// the highest moment order the cache is built for. every call in the geometry generation asks for
+// order zero or one and each moment calculation additionally asks for order+1, so orders zero
+// through three are all that is ever requested
+static const int s_maxMomentOrder = 8;
+
+const Vector<IntVect>& Moments::getListOfMoments(const int& a_order)
+{
+  static const std::vector<Vector<IntVect> > s_lists = [] ()
+    {
+      Moments moments;
+      std::vector<Vector<IntVect> > lists(s_maxMomentOrder + 1);
+
+      for (int order = 0; order <= s_maxMomentOrder; order++)
+        {
+          moments.listOfMoments(order, lists[order]);
+        }
+
+      return lists;
+    }();
+
+  if (a_order < 0 || a_order > s_maxMomentOrder)
+    {
+      MayDay::Error("Moments::getListOfMoments -- order is outside the cached range");
+    }
+
+  return s_lists[a_order];
 }
 
 void  Moments::listOfMoments(const int&       a_order,

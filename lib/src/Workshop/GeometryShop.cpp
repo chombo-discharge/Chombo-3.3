@@ -22,6 +22,8 @@
 #include <string>
 
 #include "GeometryService.H"
+#include <limits>
+
 #include "GeometryShop.H"
 
 #include "PolyGeom.H"
@@ -30,6 +32,10 @@
 #include "NamespaceHeader.H"
 
 bool GeometryShop::s_verbose = false;
+
+//sentinel for the edge intersection cache.  an intercept is a physical coordinate on the edge, so it
+//can never take this value
+static const Real s_noIntercept = -std::numeric_limits<Real>::max();
 
 GeometryShop::GeometryShop(const BaseIF& a_localGeom,
                            int           a_verbosity,
@@ -567,6 +573,92 @@ GeometryService::InOut GeometryShop::InsideOutside(const Box&           a_region
 /**********************************************/
 /*********************************************/
 void
+GeometryShop::fillNodeValues(BaseFab<Real>&  a_nodeVals,
+                             const Box&      a_ghostRegion,
+                             const RealVect& a_origin,
+                             const Real&     a_dx) const
+{
+  CH_TIME("GeometryShop::fillNodeValues");
+
+  //this is the same vectDx that InsideOutside derives, so that a cached node
+  //value is the value the per cell corner sampling would have computed
+  RealVect vectDx;
+  if (m_vectDx[0] != 0.0)
+    {
+      vectDx[0] = a_dx;
+      for (int idir = 1; idir < SpaceDim; idir++)
+        {
+          vectDx[idir] = vectDx[0] * m_vectDx[idir] / m_vectDx[0];
+        }
+    }
+  else
+    {
+      vectDx = a_dx * RealVect::Unit;
+    }
+
+  Box nodeBox = a_ghostRegion;
+  nodeBox.surroundingNodes();
+  a_nodeVals.define(nodeBox, 1);
+
+  RealVect physCorner;
+  for (BoxIterator bit(nodeBox); bit.ok(); ++bit)
+    {
+      const IntVect& node = bit();
+      for (int idir = 0; idir < CH_SPACEDIM; ++idir)
+        {
+          physCorner[idir] = vectDx[idir]*node[idir] + a_origin[idir];
+        }
+      a_nodeVals(node, 0) = m_implicitFunction->value(physCorner);
+    }
+}
+
+/*********************************************/
+GeometryService::InOut
+GeometryShop::insideOutsideFromNodes(const IntVect&       a_iv,
+                                     const BaseFab<Real>& a_nodeVals) const
+{
+  //the corner sampling branch of InsideOutside, reading the corner values out of
+  //the cache.  neighbouring cells share corners, so the cache turns 2^D+1
+  //implicit function evaluations per cell into one evaluation per node
+  Box allCorners(a_iv, a_iv);
+  allCorners.surroundingNodes();
+
+  const Real firstValue = a_nodeVals(allCorners.smallEnd(), 0);
+  const Real firstSign  = copysign(1.0, firstValue);
+
+  GeometryService::InOut rtn;
+  if ( firstSign < 0 )
+    {
+      rtn = GeometryService::Regular;
+    }
+  else
+    {
+      rtn = GeometryService::Covered;
+    }
+
+  for (BoxIterator bit(allCorners); bit.ok(); ++bit)
+    {
+      const Real functionValue = a_nodeVals(bit(), 0);
+      const Real functionSign  = copysign(1.0, functionValue);
+
+      if (functionValue == 0 || firstValue == 0)
+        {
+          if (functionSign * firstSign < 0)
+            {
+              return GeometryService::Irregular;
+            }
+        }
+      if (functionValue * firstValue < 0.0 )
+        {
+          return GeometryService::Irregular;
+        }
+    }
+
+  return rtn;
+}
+
+/*********************************************/
+void
 GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
                         Vector<IrregNode>   & a_nodes,
                         const Box           & a_validRegion,
@@ -602,6 +694,17 @@ GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
   IntVectSet ivsirreg = IntVectSet(DenseIntVectSet(a_ghostRegion, false));
   IntVectSet ivsdrop  = IntVectSet(DenseIntVectSet(a_ghostRegion, false));// CP
   long int numCovered=0, numReg=0, numIrreg=0;
+
+  //cache the implicit function at the nodes of the ghost region.  the fast
+  //intersection path and the STL path do not sample corners, so the cache is
+  //only built when neither of them is taken
+  BaseFab<Real> nodeVals;
+  const bool haveNodeCache = (m_stlIF == NULL) &&
+    !m_implicitFunction->fastIntersection(a_ghostRegion, a_domain, a_origin, a_dx);
+  if (haveNodeCache)
+    {
+      fillNodeValues(nodeVals, a_ghostRegion, a_origin, a_dx);
+    }
   CH_STOP(p1);
 
   IntVect ivdeblo(D_DECL(62,510,0));
@@ -618,7 +721,15 @@ GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
         }
 
       Box miniBox(iv, iv);
-      GeometryService::InOut inout = InsideOutside(miniBox, a_domain, a_origin, a_dx);
+      GeometryService::InOut inout;
+      if (haveNodeCache && !m_implicitFunction->fastIntersection(miniBox, a_domain, a_origin, a_dx))
+        {
+          inout = insideOutsideFromNodes(iv, nodeVals);
+        }
+      else
+        {
+          inout = InsideOutside(miniBox, a_domain, a_origin, a_dx);
+        }
 
       if (inout == GeometryService::Covered)
         {
@@ -663,6 +774,22 @@ GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
   CH_STOP(p2);
 
   CH_START(p3);
+  //cache for the edge intersections.  every cut edge is visited twice by the cell that owns it, once
+  //per adjoining face, and again by each neighbouring cell, and every one of those visits hands
+  //BrentRootFinder the same endpoints.  the root is therefore found once and reused
+  //EdgeDataBox is the container for this, but Chombo links -lworkshop after -lboxtools so its symbols
+  //are not available here.  BaseFab<Real> is header only and carries the same edge centred box
+  BaseFab<Real> edgeIntercept[SpaceDim];
+  for (int idir = 0; idir < SpaceDim; idir++)
+    {
+      Box edgeBox = a_validRegion;
+      edgeBox.surroundingNodes();
+      edgeBox.enclosedCells(idir);
+
+      edgeIntercept[idir].define(edgeBox, 1);
+      edgeIntercept[idir].setVal(s_noIntercept);
+    }
+
   // now loop through irregular cells and make nodes for each  one.
   for (IVSIterator ivsit(ivsirreg); ivsit.ok(); ++ivsit)
     {
@@ -700,7 +827,8 @@ GeometryShop::fillGraph(BaseFab<int>        & a_regIrregCovered,
                           a_origin,
                           a_dx,
                           vectDx,
-                          ivsit());
+                          ivsit(),
+                          edgeIntercept);
 
 
       if (thrshd > 0. && volFrac < thrshd)
@@ -952,7 +1080,8 @@ GeometryShop::computeVoFInternals(Real&               a_volFrac,
                                   const RealVect&     a_origin,
                                   const Real&         a_dx,
                                   const RealVect&     a_vectDx,
-                                  const IntVect&      a_iv)const
+                                  const IntVect&      a_iv,
+                                  BaseFab<Real>       a_edgeIntercept[SpaceDim])const
 {
   CH_TIME("GeometryShop::computeVoFInternals");
 
@@ -989,7 +1118,8 @@ GeometryShop::computeVoFInternals(Real&               a_volFrac,
                  a_vectDx,
                  a_iv,
                  a_domain,
-                 a_origin);
+                 a_origin,
+                 a_edgeIntercept);
 
       CH_assert(faceRegular || faceCovered || faceDontKnow);
       CH_assert((!(faceRegular && faceCovered)) && (!(faceRegular && faceDontKnow)) && (!(faceDontKnow && faceCovered)));
@@ -1197,7 +1327,8 @@ GeometryShop::computeVoFInternals(Real&               a_volFrac,
                            a_vectDx,
                            a_iv,
                            a_domain,
-                           a_origin);
+                           a_origin,
+                           a_edgeIntercept);
 
                 CH_assert(faceRegular || faceCovered || faceDontKnow);
                 CH_assert((!(faceRegular && faceCovered)) && (!(faceRegular && faceDontKnow)) && (!(faceDontKnow && faceCovered)));
@@ -2250,7 +2381,8 @@ void GeometryShop::edgeData3D(edgeMo a_edges[4],
                               const RealVect& a_vectDx,
                               const IntVect& a_iv,
                               const ProblemDomain& a_domain,
-                              const RealVect& a_origin) const
+                              const RealVect& a_origin,
+                              BaseFab<Real> a_edgeIntercept[SpaceDim]) const
 {
   CH_TIME("GeometryShop::edgeData3D");
   a_faceRegular = true;
@@ -2377,8 +2509,19 @@ void GeometryShop::edgeData3D(edgeMo a_edges[4],
                   Real intercept;
                   if (m_stlIF == NULL)
                   {
-                    // find where the surface intersects the edge
-                    intercept = BrentRootFinder(LoPt, HiPt, range);
+                    // find where the surface intersects the edge.  the same edge is reached again from
+                    // the other face of this cell and from the neighbouring cells, always with these
+                    // endpoints, so the root is looked up before it is computed
+                    IntVect edgeIV = a_iv;
+                    edgeIV[a_faceNormal] += a_hiLoFace;
+                    edgeIV[dom]          += lohi;
+
+                    intercept = a_edgeIntercept[range](edgeIV, 0);
+                    if (intercept == s_noIntercept)
+                      {
+                        intercept = BrentRootFinder(LoPt, HiPt, range);
+                        a_edgeIntercept[range](edgeIV, 0) = intercept;
+                      }
                   }
                   else
                   {
@@ -2468,7 +2611,8 @@ void GeometryShop::edgeData2D(edgeMo a_edges[4],
                               const RealVect& a_vectDx,
                               const IntVect& a_iv,
                               const ProblemDomain& a_domain,
-                              const RealVect& a_origin) const
+                              const RealVect& a_origin,
+                              BaseFab<Real> a_edgeIntercept[SpaceDim]) const
 {
   CH_TIME("GeometryShop::edgeData2D");
   // index counts which edge:xLo=0,xHi=1,yLo=2,yHi=3
@@ -2544,10 +2688,19 @@ void GeometryShop::edgeData2D(edgeMo a_edges[4],
               a_faceCovered  = false;
               a_faceDontKnow = true;
 
-              // find where the surface intersects the edge
+              // find where the surface intersects the edge.  the neighbouring cell reaches the same
+              // edge with these endpoints, so the root is looked up before it is computed
               Real intercept;
 
-              intercept = BrentRootFinder(LoPt, HiPt, range);
+              IntVect edgeIV = a_iv;
+              edgeIV[domain] += lohi;
+
+              intercept = a_edgeIntercept[range](edgeIV, 0);
+              if (intercept == s_noIntercept)
+                {
+                  intercept = BrentRootFinder(LoPt, HiPt, range);
+                  a_edgeIntercept[range](edgeIV, 0) = intercept;
+                }
 
               // choose the midpoint for an ill-conditioned problem
               if (intercept<LoPt[range] || intercept>HiPt[range])

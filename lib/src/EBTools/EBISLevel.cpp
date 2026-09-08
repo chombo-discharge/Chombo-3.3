@@ -864,7 +864,10 @@ void EBISLevel::dumpDebug(const string& a_string)
     }
 }
 
-void EBISLevel::coarsenVoFs(EBISLevel& a_fineEBIS)
+void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
+                            LevelData<EBGraph>& a_fineGraph,
+                            LevelData<EBData>&  a_fineData,
+                            LevelData<EBGraph>& a_coarGraph)
 {
   CH_TIME("EBISLevel::coarsenVoFs");
 
@@ -873,19 +876,10 @@ void EBISLevel::coarsenVoFs(EBISLevel& a_fineEBIS)
   refine(fineFromCoarDBL, m_grids, 2);
   fineFromCoarDBL.close();
 
-  //no need for ghost cells here except to define the face data
-  //you need the graph to be one bigger
-  EBGraphFactory ebgraphfactFine(a_fineEBIS.m_domain);
-  LevelData<EBGraph> fineFromCoarEBGraph(fineFromCoarDBL,1, IntVect::Unit, ebgraphfactFine);
-
-  // Simplify graph from geoserver if possible. In this case we need to iterate through the coarse level in
-  // order to simplify the graph on the fine level. So, need to pass in m_domain, m_oigin, and m_dx to simplifyGraphFromGeo
-  if(s_distributedData){
-    simplifyGraphFromGeo(fineFromCoarEBGraph, *m_geoserver, fineFromCoarDBL, m_domain, m_origin, m_dx);
-  }
+  //the fine graph is filled by the caller and shared with coarsenFaces
+  LevelData<EBGraph>& fineFromCoarEBGraph = a_fineGraph;
 
   Interval interv(0,0);
-  a_fineEBIS.m_graph.copyTo(interv, fineFromCoarEBGraph, interv);
 
   const DataIterator dit = m_grids.dataIterator();
 
@@ -902,31 +896,20 @@ void EBISLevel::coarsenVoFs(EBISLevel& a_fineEBIS)
       coarEBGraph.coarsenVoFs(fineEBGraph, coarRegion);
     }
 
-  EBGraphFactory ebgraphfactCoar(m_domain);
-  LevelData<EBGraph> coarGhostEBGraph(m_grids,1, IntVect::Unit, ebgraphfactCoar);
+  //the coarse ghost graph is filled here and reused by coarsenFaces, which needs the same layout,
+  //the same ghost region and the same m_graph that this step has just written
+  LevelData<EBGraph>& coarGhostEBGraph = a_coarGraph;
 
   if(s_distributedData){
     simplifyGraphFromGeo(coarGhostEBGraph, *m_geoserver, m_grids, m_domain, m_origin, m_dx);
   }
-    
+
   m_graph.copyTo(interv, coarGhostEBGraph, interv);
 
   //dumpDebug(string("EBIS::coarsenVoFs"));
 
-  EBDataFactory ebdatafact;
-  LevelData<EBData> fineFromCoarEBData(fineFromCoarDBL,1, IntVect::Zero, ebdatafact);
-
-#pragma omp parallel for schedule(runtime)
-  for (int mybox = 0; mybox < nbox; mybox++)
-    {
-      const DataIndex din = dit[mybox];
-
-      const Box& localBox = fineFromCoarDBL[din];
-      fineFromCoarEBData[din].defineVoFData(fineFromCoarEBGraph[din],  localBox);
-      fineFromCoarEBData[din].defineFaceData(fineFromCoarEBGraph[din], localBox);
-    }
-
-  a_fineEBIS.m_data.copyTo(interv, fineFromCoarEBData, interv);
+  //the fine data is defined and filled by the caller over the wider region coarsenFaces needs
+  LevelData<EBData>& fineFromCoarEBData = a_fineData;
 
 #pragma omp parallel for schedule(runtime)
   for (int mybox = 0; mybox < nbox; mybox++) 
@@ -969,7 +952,10 @@ void EBISLevel::fixFineToCoarse(EBISLevel& a_fineEBIS)
 
 }
 
-void EBISLevel::coarsenFaces(EBISLevel& a_fineEBIS)
+void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
+                             LevelData<EBGraph>& a_fineGraph,
+                             LevelData<EBData>&  a_fineData,
+                             LevelData<EBGraph>& a_coarGraph)
 {
   CH_TIME("EBISLevel::coarsenFaces");
   //now make a fine ebislayout with two ghost cell
@@ -980,23 +966,15 @@ void EBISLevel::coarsenFaces(EBISLevel& a_fineEBIS)
   refine(fineFromCoarDBL, m_grids, 2);
   fineFromCoarDBL.close();
 
-  //no need for ghost cells here
-  EBGraphFactory ebgraphfactfine(a_fineEBIS.m_domain);
   EBGraphFactory ebgraphfactcoar(m_domain);
-  LevelData<EBGraph> fineEBGraphGhostLD(fineFromCoarDBL,1,3*IntVect::Unit, ebgraphfactfine);
-  Interval interv(0,0);
-  
-  if(s_distributedData){ // Won't work because this looks up the fine domain DBL
-    simplifyGraphFromGeo(fineEBGraphGhostLD, *m_geoserver, fineFromCoarDBL, m_domain, m_origin, m_dx);
-  }
-  a_fineEBIS.m_graph.copyTo(interv, fineEBGraphGhostLD, interv);
-  LevelData<EBGraph> coarEBGraphGhostLD(m_grids,        1,  IntVect::Unit, ebgraphfactcoar);
 
-  if(s_distributedData){  // Should work because ScanShop->m_grids = m_grids
-    simplifyGraphFromGeo(coarEBGraphGhostLD, *m_geoserver, m_grids, m_domain, m_origin, m_dx);
-  }
-  
-  m_graph.copyTo(interv, coarEBGraphGhostLD, interv);
+  //both graphs were filled by coarsenVoFs.  the fine one is untouched since then and already
+  //carries the three ghost cells this step needs, and the coarse one reflects the m_graph that
+  //coarsenVoFs left behind, which is exactly what this step wants
+  LevelData<EBGraph>& fineEBGraphGhostLD = a_fineGraph;
+  LevelData<EBGraph>& coarEBGraphGhostLD = a_coarGraph;
+
+  Interval interv(0,0);
 
   const DataIterator dit = m_grids.dataIterator();
 
@@ -1020,20 +998,8 @@ void EBISLevel::coarsenFaces(EBISLevel& a_fineEBIS)
   }
   m_graph.copyTo(interv, coarEBGraphGhostLD, interv);
 
-  EBDataFactory ebdatafact;
-  LevelData<EBData> fineEBDataGhostLD(fineFromCoarDBL,1, 2*IntVect::Unit, ebdatafact);
-
-#pragma omp parallel for schedule(runtime)
-  for (int mybox = 0; mybox < nbox; mybox++) 
-    {
-      const DataIndex din = dit[mybox];    
-
-      Box localBox = grow(fineFromCoarDBL.get(din), 2);
-      localBox &= a_fineEBIS.m_domain;
-      fineEBDataGhostLD[din].defineVoFData(fineEBGraphGhostLD[din], localBox);;
-      fineEBDataGhostLD[din].defineFaceData(fineEBGraphGhostLD[din], localBox);
-    }
-  a_fineEBIS.m_data.copyTo(interv, fineEBDataGhostLD, interv);
+  //the fine data was defined and filled by the caller over the region this step needs
+  LevelData<EBData>& fineEBDataGhostLD = a_fineData;
 
 #pragma omp parallel for schedule(runtime)
   for (int mybox = 0; mybox < nbox; mybox++) 
@@ -1104,12 +1070,54 @@ EBISLevel::EBISLevel(EBISLevel             & a_fineEBIS,
   
 //  pout() << "before coarsenVoFs " << endl;
   //create coarsened vofs from fine.
-  coarsenVoFs(a_fineEBIS);
+  //the fine graph and data on the refinement of these grids, and the coarse graph on these grids,
+  //are each read by both coarsening steps.  build them once with the widest ghost region either
+  //step needs -- three for the fine graph, two for the fine data, one for the coarse graph -- so
+  //that the level is exchanged once per object rather than once per step
+  DisjointBoxLayout fineFromCoarDBL;
+  refine(fineFromCoarDBL, m_grids, 2);
+  fineFromCoarDBL.close();
+
+  EBGraphFactory ebgraphfactfine(a_fineEBIS.m_domain);
+  EBGraphFactory ebgraphfactcoar(m_domain);
+  EBDataFactory  ebdatafactshared;
+
+  LevelData<EBGraph> sharedFineGraph(fineFromCoarDBL, 1, 3*IntVect::Unit, ebgraphfactfine);
+  LevelData<EBGraph> sharedCoarGraph(m_grids,         1,   IntVect::Unit, ebgraphfactcoar);
+  LevelData<EBData>  sharedFineData (fineFromCoarDBL, 1, 2*IntVect::Unit, ebdatafactshared);
+
+  {
+    Interval sharedInterv(0,0);
+
+    if(s_distributedData){
+      simplifyGraphFromGeo(sharedFineGraph, *m_geoserver, fineFromCoarDBL, m_domain, m_origin, m_dx);
+    }
+    a_fineEBIS.m_graph.copyTo(sharedInterv, sharedFineGraph, sharedInterv);
+
+    const DataIterator& sharedDit = m_grids.dataIterator();
+
+    const int sharedNbox = sharedDit.size();
+
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < sharedNbox; mybox++)
+      {
+        const DataIndex din = sharedDit[mybox];
+
+        Box localBox = grow(fineFromCoarDBL.get(din), 2);
+        localBox &= a_fineEBIS.m_domain;
+        sharedFineData[din].defineVoFData(sharedFineGraph[din], localBox);
+        sharedFineData[din].defineFaceData(sharedFineGraph[din], localBox);
+      }
+
+    a_fineEBIS.m_data.copyTo(sharedInterv, sharedFineData, sharedInterv);
+  }
+
+  coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
 
 //  pout() << "before coarsenFacess " << endl;
   //overallMemoryUsage();
   //create coarse faces from fine
-  coarsenFaces(a_fineEBIS);
+  coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
   //overallMemoryUsage();
   //fix the regular next to the multivalued cells
   //to be full irregular cells

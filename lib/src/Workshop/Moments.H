@@ -170,6 +170,10 @@ public:
   void  listOfMoments(const int&       a_order,
                       Vector<IntVect>& a_exponents);
 
+  // the exponent list for one moment order. depends only on the order and on SpaceDim, so the lists
+  // are built once and handed out by reference rather than rebuilt for every moment calculation
+  const Vector<IntVect>& getListOfMoments(const int& a_order);
+
   void makeMatrix(const Vector<IntVect>& a_list,
                   const Vector<IntVect>& a_listPlus,
                   const Vector<Real>&    a_normalVec,
