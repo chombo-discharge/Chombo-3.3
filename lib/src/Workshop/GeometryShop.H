@@ -120,7 +120,8 @@ public:
                            const RealVect&      a_origin,
                            const Real&          a_dx,
                            const RealVect&      a_vectDx,
-                           const IntVect&       a_iv) const;
+                           const IntVect&       a_iv,
+                           BaseFab<Real>        a_edgeIntercept[SpaceDim]) const;
 
   void
   getFullNodeWithCoveredFace(IrregNode            & a_newNode, 
@@ -226,7 +227,8 @@ private:
                   const RealVect&      a_vectDx,
                   const IntVect&       a_coord,
                   const ProblemDomain& a_domain,
-                  const RealVect&      a_origin) const;
+                  const RealVect&      a_origin,
+                  BaseFab<Real>        a_edgeIntercept[SpaceDim]) const;
 
   void edgeData2D(edgeMo               a_edges[4],
                   bool&                a_faceCovered,
@@ -236,7 +238,8 @@ private:
                   const RealVect&      a_vectDx,
                   const IntVect&       a_coord,
                   const ProblemDomain& a_domain,
-                  const RealVect&      a_origin) const;
+                  const RealVect&      a_origin,
+                  BaseFab<Real>        a_edgeIntercept[SpaceDim]) const;
 
   void edgeType(bool& a_regular,
                 bool& a_covered,
