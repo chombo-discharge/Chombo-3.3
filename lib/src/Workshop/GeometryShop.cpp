@@ -979,8 +979,19 @@ fixRegularCellsNextToCovered(Vector<IrregNode>    & a_nodes,
               a_regIrregCovered(iv, 0) = 0;
               if(a_validRegion.contains(iv))
               {
+                //a cell reached here by edge or corner can still share a FACE with another
+                //covered cell, and converting it claims it, so the sweep over that cell finds
+                //it already irregular and leaves it alone.  the node is therefore built from
+                //the covered set rather than as a plain regular cell.  that set is complete
+                //before any of these fix-ups run, so the boundary centroid lands on the
+                //covered face whichever covered cell reaches this one first.  the cell is
+                //full, so its moments are those of a regular cell
                 IrregNode newNode;
-                newNode.makeRegular(iv, a_dx, a_domain);
+                newNode.setMomentsToRegular(a_dx);
+                getFullNodeWithCoveredFace(newNode,
+                                           a_regIrregCovered,
+                                           iv,
+                                           a_domain);
                 a_nodes.push_back(newNode);
               }
             }
