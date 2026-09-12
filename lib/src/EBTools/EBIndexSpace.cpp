@@ -330,6 +330,84 @@ void EBIndexSpace::define(const ProblemDomain    & a_domain,
   print_memory_line("ebis_leaving_define");
 }
 
+void EBIndexSpace::defineEveryLevel(const ProblemDomain    & a_domain,
+                                    const RealVect         & a_origin,
+                                    const Real             & a_dx,
+                                    const GeometryService  & a_geoserver,
+                                    int                      a_nCellMax,
+                                    int                      a_maxCoarsenings)
+{
+  CH_TIME("EBIndexSpace::defineEveryLevel");
+
+  pout() << "EBIndexSpace::defineEveryLevel - From domain, every level" << endl;
+
+  if (a_nCellMax > 0)
+    {
+      m_nCellMax = a_nCellMax;
+    }
+  else
+    {
+      m_nCellMax = 32;
+    }
+
+  int cellMax = a_nCellMax;
+  if ((cellMax < 0) && (m_nCellMax > 0))
+    {
+      cellMax = m_nCellMax;
+    }
+
+  pout() << "  Building level 0..." << endl;
+  buildFirstLevel(a_domain, a_origin, a_dx, a_geoserver, cellMax, a_maxCoarsenings);
+  m_ebisLevel[0]->clearMultiBoundaries();
+  m_ebisLevel[0]->printGraphSummary("    ");
+  pout() << endl;
+
+  // buildFirstLevel has worked out how many levels there are and sized the arrays. Each of the
+  // rest is built the same way the first was, from the geometry service, rather than by
+  // coarsening the one below it.
+  ProblemDomain domLevel = a_domain;
+  Real          dxLevel  = a_dx;
+
+  for (int ilev = 1; ilev < m_nlevels; ilev++)
+    {
+      pout() << "  Building level " << ilev << "..." << endl;
+
+      domLevel.coarsen(2);
+      dxLevel *= 2;
+
+      m_domainLevel[ilev] = domLevel;
+      m_ebisLevel[ilev] = new EBISLevel(domLevel,
+                                        a_origin,
+                                        dxLevel,
+                                        a_geoserver,
+                                        cellMax,
+                                        false);
+      m_ebisLevel[ilev]->clearMultiBoundaries();
+
+      // The coarsening constructor ends by writing each fine VoF's coarse counterpart into the
+      // fine graph, and everything that walks from a level to the one below it reads that. It has
+      // to be done here too, since the levels were not built by coarsening.
+      m_ebisLevel[ilev]->fixFineToCoarse(*m_ebisLevel[ilev-1]);
+
+      m_ebisLevel[ilev]->printGraphSummary("    ");
+      pout() << endl;
+    }
+
+#ifndef NDEBUG
+  for (int ilev = 0; ilev < m_nlevels; ilev++)
+    {
+      m_ebisLevel[ilev]->sanityCheck(this);
+    }
+#endif
+#ifdef CH_MPI
+  {
+    CH_TIME("EBIndexSpace::done_with_all_define_every_level_barrier");
+    MPI_Barrier(Chombo_MPI::comm);
+  }
+#endif
+  print_memory_line("ebis_leaving_define_every_level");
+}
+
 void EBIndexSpace::define(const ProblemDomain                        & a_entireDomain,
                           const RealVect                             & a_origin,
                           const Real                                 & a_dx,
