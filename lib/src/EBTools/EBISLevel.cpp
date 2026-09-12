@@ -936,6 +936,46 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
     a_fineEBIS.m_data.copyTo(sharedInterv, sharedFineData, sharedInterv);
   }
 
+  // The cells on the edge of what is about to be coarsened, and how many VoFs they hold now. The
+  // cells outside were generated with arcs naming these as they stand; if coarsening changes one
+  // of them, those arcs are stale and nothing goes back to rewrite them.
+  LayoutData<IntVectSet> edgeCells(m_grids);
+  LayoutData<std::vector<long long>> edgeBefore(m_grids);
+
+  {
+    const DataIterator& edgeDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < edgeDit.size(); mybox++)
+      {
+        const DataIndex din = edgeDit[mybox];
+
+        if (!coarsenThisBox[din])
+          {
+            continue;
+          }
+
+        for (BoxIterator bit(m_grids[din]); bit.ok(); ++bit)
+          {
+            const Box neighbourhood = grow(Box(bit(), bit()), 1) & m_domain;
+
+            for (BoxIterator nit(neighbourhood); nit.ok(); ++nit)
+              {
+                if (!fineCoverage.contains(nit()))
+                  {
+                    edgeCells[din] |= bit();
+
+                    break;
+                  }
+              }
+          }
+
+        for (IVSIterator ivsIt(edgeCells[din]); ivsIt.ok(); ++ivsIt)
+          {
+            edgeBefore[din].push_back(m_graph[din].numVoFs(ivsIt()));
+          }
+      }
+  }
+
   coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph, coarsenThisBox);
 
 //  pout() << "before coarsenFacess " << endl;
@@ -957,6 +997,49 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
 //  pout() << "before fix fine to coarse " << endl;
   fixFineToCoarse(a_fineEBIS);
   checkGraph();
+
+  // Where a level is only coarsened in part, the cells that were not coarsened were generated
+  // with arcs naming their neighbours as they stood. Coarsening may since have changed one of
+  // those neighbours -- given it another VoF, or turned it from whole to cut -- and nothing goes
+  // back to rewrite the arcs that point at it. Say so here rather than letting a stencil walk a
+  // graph that does not join up.
+  {
+    long long stale = 0;
+
+    const DataIterator& edgeDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < edgeDit.size(); mybox++)
+      {
+        const DataIndex din = edgeDit[mybox];
+
+        if (!coarsenThisBox[din])
+          {
+            continue;
+          }
+
+        int which = 0;
+
+        for (IVSIterator ivsIt(edgeCells[din]); ivsIt.ok(); ++ivsIt, ++which)
+          {
+            if (m_graph[din].numVoFs(ivsIt()) != edgeBefore[din][which])
+              {
+                stale++;
+              }
+          }
+      }
+
+    stale = EBLevelDataOps::parallelSum(stale);
+
+    if (stale > 0)
+      {
+        pout() << "    " << stale << " cells on the edge of what was coarsened changed underneath their neighbours"
+               << endl;
+
+        MayDay::Error("EBISLevel::coarsenFrom - coarsening changed cells on the edge of the region it covers, and the "
+                      "cells outside still hold arcs describing them as they were. The region coarsened has to reach "
+                      "past every cell coarsening changes.");
+      }
+  }
 }
 
 void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
