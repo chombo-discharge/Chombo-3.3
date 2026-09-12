@@ -94,7 +94,8 @@ public:
   void coarsenVoFs(EBISLevel&           a_fineEBIS,
                    LevelData<EBGraph>&  a_fineGraph,
                    LevelData<EBData>&   a_fineData,
-                   LevelData<EBGraph>&  a_coarGraph);
+                   LevelData<EBGraph>&  a_coarGraph,
+                   const LayoutData<bool>& a_coarsenThisBox);
 
   ///
   /**
@@ -104,6 +105,10 @@ public:
      that it can also be applied to a level that was already built from the geometry service. That
      is what a partially refined index space needs: generate the level everywhere, then let the
      finer level, where it exists, say what the cells under it look like.
+
+     Only the boxes the finer level actually reaches are overwritten. Elsewhere what this level was
+     built with stands, which is what lets the finer level cover part of the domain: coarsening has
+     nothing to read where it does not reach.
 
      The fine level is copied onto a refinement of this level's grids before anything is coarsened,
      with the ghost width each step needs, so a coarse cell on a box boundary is coarsened from
@@ -116,7 +121,8 @@ public:
   void coarsenFaces(EBISLevel&           a_fineEBIS,
                     LevelData<EBGraph>&  a_fineGraph,
                     LevelData<EBData>&   a_fineData,
-                    LevelData<EBGraph>&  a_coarGraph);
+                    LevelData<EBGraph>&  a_coarGraph,
+                    const LayoutData<bool>& a_coarsenThisBox);
 
   long long numVoFsOnProc() const;
 

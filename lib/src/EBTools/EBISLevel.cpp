@@ -878,6 +878,30 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
   refine(fineFromCoarDBL, m_grids, 2);
   fineFromCoarDBL.close();
 
+  // Which of this level's boxes the finer level actually reaches. Coarsening can only speak for
+  // those; the rest keep whatever this level was built with.
+  IntVectSet fineCoverage;
+  {
+    const Vector<Box>& fineBoxes = a_fineEBIS.m_grids.boxArray();
+
+    for (int ibox = 0; ibox < fineBoxes.size(); ibox++)
+      {
+        fineCoverage |= coarsen(fineBoxes[ibox], 2);
+      }
+  }
+
+  LayoutData<bool> coarsenThisBox(m_grids);
+  {
+    const DataIterator& maskDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < maskDit.size(); mybox++)
+      {
+        const DataIndex din = maskDit[mybox];
+
+        coarsenThisBox[din] = fineCoverage.contains(m_grids[din]);
+      }
+  }
+
   EBGraphFactory ebgraphfactfine(a_fineEBIS.m_domain);
   EBGraphFactory ebgraphfactcoar(m_domain);
   EBDataFactory  ebdatafactshared;
@@ -912,12 +936,12 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
     a_fineEBIS.m_data.copyTo(sharedInterv, sharedFineData, sharedInterv);
   }
 
-  coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
+  coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph, coarsenThisBox);
 
 //  pout() << "before coarsenFacess " << endl;
   //overallMemoryUsage();
   //create coarse faces from fine
-  coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
+  coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph, coarsenThisBox);
   //overallMemoryUsage();
   //fix the regular next to the multivalued cells
   //to be full irregular cells
@@ -938,7 +962,8 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
 void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
                             LevelData<EBGraph>& a_fineGraph,
                             LevelData<EBData>&  a_fineData,
-                            LevelData<EBGraph>& a_coarGraph)
+                            LevelData<EBGraph>& a_coarGraph,
+                            const LayoutData<bool>& a_coarsenThisBox)
 {
   CH_TIME("EBISLevel::coarsenVoFs");
 
@@ -960,7 +985,12 @@ void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
   for (int mybox = 0; mybox < nbox; mybox++) 
     {
       const DataIndex din = dit[mybox];
-      
+
+      if (!a_coarsenThisBox[din])
+        {
+          continue;
+        }
+
       const EBGraph& fineEBGraph = fineFromCoarEBGraph[din];
       const Box& coarRegion      = m_grids[din];
       EBGraph& coarEBGraph = m_graph[din];
@@ -986,6 +1016,11 @@ void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
   for (int mybox = 0; mybox < nbox; mybox++) 
     {
       const DataIndex din = dit[mybox];
+
+      if (!a_coarsenThisBox[din])
+        {
+          continue;
+        }
 
       const EBGraph& fineEBGraph =  fineFromCoarEBGraph[din];
       const EBData& fineEBData = fineFromCoarEBData[din];
@@ -1026,7 +1061,8 @@ void EBISLevel::fixFineToCoarse(EBISLevel& a_fineEBIS)
 void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
                              LevelData<EBGraph>& a_fineGraph,
                              LevelData<EBData>&  a_fineData,
-                             LevelData<EBGraph>& a_coarGraph)
+                             LevelData<EBGraph>& a_coarGraph,
+                             const LayoutData<bool>& a_coarsenThisBox)
 {
   CH_TIME("EBISLevel::coarsenFaces");
   //now make a fine ebislayout with two ghost cell
@@ -1056,6 +1092,11 @@ void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
     {
       const DataIndex din = dit[mybox];  
 
+      if (!a_coarsenThisBox[din])
+        {
+          continue;
+        }
+
       const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[din];
       const EBGraph& coarEBGraphGhost = coarEBGraphGhostLD[din];
       EBGraph& coarEBGraph = m_graph[din];
@@ -1076,6 +1117,11 @@ void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
   for (int mybox = 0; mybox < nbox; mybox++) 
     {
       const DataIndex din = dit[mybox];      
+
+      if (!a_coarsenThisBox[din])
+        {
+          continue;
+        }
 
       const EBData&   fineEBData      = fineEBDataGhostLD[din];
       const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[din];
