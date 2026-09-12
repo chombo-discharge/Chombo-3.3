@@ -864,6 +864,77 @@ void EBISLevel::dumpDebug(const string& a_string)
     }
 }
 
+void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiValued)
+{
+  CH_TIME("EBISLevel::coarsenFrom");
+
+//  pout() << "before coarsenVoFs " << endl;
+  //create coarsened vofs from fine.
+  //the fine graph and data on the refinement of these grids, and the coarse graph on these grids,
+  //are each read by both coarsening steps.  build them once with the widest ghost region either
+  //step needs -- three for the fine graph, two for the fine data, one for the coarse graph -- so
+  //that the level is exchanged once per object rather than once per step
+  DisjointBoxLayout fineFromCoarDBL;
+  refine(fineFromCoarDBL, m_grids, 2);
+  fineFromCoarDBL.close();
+
+  EBGraphFactory ebgraphfactfine(a_fineEBIS.m_domain);
+  EBGraphFactory ebgraphfactcoar(m_domain);
+  EBDataFactory  ebdatafactshared;
+
+  LevelData<EBGraph> sharedFineGraph(fineFromCoarDBL, 1, 3*IntVect::Unit, ebgraphfactfine);
+  LevelData<EBGraph> sharedCoarGraph(m_grids,         1,   IntVect::Unit, ebgraphfactcoar);
+  LevelData<EBData>  sharedFineData (fineFromCoarDBL, 1, 2*IntVect::Unit, ebdatafactshared);
+
+  {
+    Interval sharedInterv(0,0);
+
+    if(s_distributedData){
+      simplifyGraphFromGeo(sharedFineGraph, *m_geoserver, fineFromCoarDBL, m_domain, m_origin, m_dx);
+    }
+    a_fineEBIS.m_graph.copyTo(sharedInterv, sharedFineGraph, sharedInterv);
+
+    const DataIterator& sharedDit = m_grids.dataIterator();
+
+    const int sharedNbox = sharedDit.size();
+
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < sharedNbox; mybox++)
+      {
+        const DataIndex din = sharedDit[mybox];
+
+        Box localBox = grow(fineFromCoarDBL.get(din), 2);
+        localBox &= a_fineEBIS.m_domain;
+        sharedFineData[din].defineVoFData(sharedFineGraph[din], localBox);
+        sharedFineData[din].defineFaceData(sharedFineGraph[din], localBox);
+      }
+
+    a_fineEBIS.m_data.copyTo(sharedInterv, sharedFineData, sharedInterv);
+  }
+
+  coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
+
+//  pout() << "before coarsenFacess " << endl;
+  //overallMemoryUsage();
+  //create coarse faces from fine
+  coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
+  //overallMemoryUsage();
+  //fix the regular next to the multivalued cells
+  //to be full irregular cells
+  //  dumpDebug(string("EBIS::before FRNTM"));
+  if (a_fixRegularNextToMultiValued)
+    {
+      fixRegularNextToMultiValued();
+    }
+  //  dumpDebug(string("EBIS::after FRNTM"));
+  
+  //overallMemoryUsage();
+  // fix the fine->coarseVoF thing.
+//  pout() << "before fix fine to coarse " << endl;
+  fixFineToCoarse(a_fineEBIS);
+  checkGraph();
+}
+
 void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
                             LevelData<EBGraph>& a_fineGraph,
                             LevelData<EBData>&  a_fineData,
@@ -1068,71 +1139,7 @@ EBISLevel::EBISLevel(EBISLevel             & a_fineEBIS,
   EBDataFactory ebdatafact;
   m_data.define(m_grids, 1, IntVect::Zero, ebdatafact);
   
-//  pout() << "before coarsenVoFs " << endl;
-  //create coarsened vofs from fine.
-  //the fine graph and data on the refinement of these grids, and the coarse graph on these grids,
-  //are each read by both coarsening steps.  build them once with the widest ghost region either
-  //step needs -- three for the fine graph, two for the fine data, one for the coarse graph -- so
-  //that the level is exchanged once per object rather than once per step
-  DisjointBoxLayout fineFromCoarDBL;
-  refine(fineFromCoarDBL, m_grids, 2);
-  fineFromCoarDBL.close();
-
-  EBGraphFactory ebgraphfactfine(a_fineEBIS.m_domain);
-  EBGraphFactory ebgraphfactcoar(m_domain);
-  EBDataFactory  ebdatafactshared;
-
-  LevelData<EBGraph> sharedFineGraph(fineFromCoarDBL, 1, 3*IntVect::Unit, ebgraphfactfine);
-  LevelData<EBGraph> sharedCoarGraph(m_grids,         1,   IntVect::Unit, ebgraphfactcoar);
-  LevelData<EBData>  sharedFineData (fineFromCoarDBL, 1, 2*IntVect::Unit, ebdatafactshared);
-
-  {
-    Interval sharedInterv(0,0);
-
-    if(s_distributedData){
-      simplifyGraphFromGeo(sharedFineGraph, *m_geoserver, fineFromCoarDBL, m_domain, m_origin, m_dx);
-    }
-    a_fineEBIS.m_graph.copyTo(sharedInterv, sharedFineGraph, sharedInterv);
-
-    const DataIterator& sharedDit = m_grids.dataIterator();
-
-    const int sharedNbox = sharedDit.size();
-
-#pragma omp parallel for schedule(runtime)
-    for (int mybox = 0; mybox < sharedNbox; mybox++)
-      {
-        const DataIndex din = sharedDit[mybox];
-
-        Box localBox = grow(fineFromCoarDBL.get(din), 2);
-        localBox &= a_fineEBIS.m_domain;
-        sharedFineData[din].defineVoFData(sharedFineGraph[din], localBox);
-        sharedFineData[din].defineFaceData(sharedFineGraph[din], localBox);
-      }
-
-    a_fineEBIS.m_data.copyTo(sharedInterv, sharedFineData, sharedInterv);
-  }
-
-  coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
-
-//  pout() << "before coarsenFacess " << endl;
-  //overallMemoryUsage();
-  //create coarse faces from fine
-  coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
-  //overallMemoryUsage();
-  //fix the regular next to the multivalued cells
-  //to be full irregular cells
-  //  dumpDebug(string("EBIS::before FRNTM"));
-  if (a_fixRegularNextToMultiValued)
-    {
-      fixRegularNextToMultiValued();
-    }
-  //  dumpDebug(string("EBIS::after FRNTM"));
-  
-  //overallMemoryUsage();
-  // fix the fine->coarseVoF thing.
-//  pout() << "before fix fine to coarse " << endl;
-  fixFineToCoarse(a_fineEBIS);
-  checkGraph();
+  coarsenFrom(a_fineEBIS, a_fixRegularNextToMultiValued);
 #if 0
   pout() << "EBISLevel::EBISLevel 4 - m_grids - m_dx: " << m_dx << endl;
   pout() << "--------" << endl;

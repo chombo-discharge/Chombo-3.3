@@ -96,6 +96,21 @@ public:
                    LevelData<EBData>&   a_fineData,
                    LevelData<EBGraph>&  a_coarGraph);
 
+  ///
+  /**
+     Overwrite this level's graph and data with the coarsening of a finer one.
+
+     This is the whole of what the coarsening constructor does once it has its grids, split out so
+     that it can also be applied to a level that was already built from the geometry service. That
+     is what a partially refined index space needs: generate the level everywhere, then let the
+     finer level, where it exists, say what the cells under it look like.
+
+     The fine level is copied onto a refinement of this level's grids before anything is coarsened,
+     with the ghost width each step needs, so a coarse cell on a box boundary is coarsened from
+     fine cells that are all present. That copy is also what exchanges the fine level.
+   */
+  void coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiValued = true);
+
   void fixFineToCoarse(EBISLevel& a_fineEBIS);
 
   void coarsenFaces(EBISLevel&           a_fineEBIS,

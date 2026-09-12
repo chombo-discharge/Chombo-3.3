@@ -376,19 +376,20 @@ void EBIndexSpace::defineEveryLevel(const ProblemDomain    & a_domain,
       dxLevel *= 2;
 
       m_domainLevel[ilev] = domLevel;
+
+      // Generate the level everywhere first. Where a finer level exists it then says what the
+      // cells under it look like, overwriting what was generated there, so that the two describe
+      // one surface rather than two reconstructions of it. Where it does not, what was generated
+      // stands.
       m_ebisLevel[ilev] = new EBISLevel(domLevel,
                                         a_origin,
                                         dxLevel,
                                         a_geoserver,
                                         cellMax,
                                         true);
+
+      m_ebisLevel[ilev]->coarsenFrom(*m_ebisLevel[ilev-1]);
       m_ebisLevel[ilev]->clearMultiBoundaries();
-
-      // The coarsening constructor ends by writing each fine VoF's coarse counterpart into the
-      // fine graph, and everything that walks from a level to the one below it reads that. It has
-      // to be done here too, since the levels were not built by coarsening.
-      m_ebisLevel[ilev]->fixFineToCoarse(*m_ebisLevel[ilev-1]);
-
       m_ebisLevel[ilev]->printGraphSummary("    ");
       pout() << endl;
     }
