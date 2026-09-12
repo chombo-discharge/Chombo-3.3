@@ -381,7 +381,7 @@ void EBIndexSpace::defineEveryLevel(const ProblemDomain    & a_domain,
                                         dxLevel,
                                         a_geoserver,
                                         cellMax,
-                                        false);
+                                        true);
       m_ebisLevel[ilev]->clearMultiBoundaries();
 
       // The coarsening constructor ends by writing each fine VoF's coarse counterpart into the
