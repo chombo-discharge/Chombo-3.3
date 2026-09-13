@@ -11,6 +11,7 @@
 //  ANAG, LBNL, DTG
 
 #include "GraphNode.H"
+#include "MayDay.H"
 #include "BoxIterator.H"
 #include "parstream.H"
 #include "EBArith.H"
@@ -298,7 +299,19 @@ Vector<VolIndex> GraphNode::refine(const VolIndex& a_coarVoF) const
       //index is too big (or < 0), we can tell by Vector
       //going out of bounds
       const Vector<GraphNodeImplem>& nodeVec = *m_cellList;
+      if (a_coarVoF.cellIndex() < 0 || a_coarVoF.cellIndex() >= (int) nodeVec.size())
+        {
+          pout() << "GRAPHREFINE cell " << a_coarVoF.gridIndex() << " index " << a_coarVoF.cellIndex()
+                 << " of " << nodeVec.size() << endl;
+          MayDay::Error("GraphNode::refine - asked for the fine cells of a coarse cell that has none");
+        }
       const GraphNodeImplem& node =  nodeVec[a_coarVoF.cellIndex()];
+      if (node.m_finerNodes.size() == 0)
+        {
+          pout() << "GRAPHREFINE cell " << a_coarVoF.gridIndex() << " index " << a_coarVoF.cellIndex()
+                 << " has an empty finer-node list" << endl;
+          MayDay::Error("GraphNode::refine - the coarse cell holds no record of what lies under it");
+        }
       retvec = node.m_finerNodes;
     }
   return retvec;
