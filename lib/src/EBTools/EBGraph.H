@@ -282,6 +282,15 @@ public:
   void coarsenVoFs(const EBGraphImplem&   a_fineGraph,
                    const Box& a_coarRegion);
 
+  //record what lies under cells that were generated rather than coarsened.  a coarse cell only
+  //knows its finer vofs if coarsening put them there, and the neighbour of a cell being coarsened
+  //is asked for them whether it was coarsened or not.  this writes that record for cells the fine
+  //level reaches without touching the cells themselves -- their vofs, arcs and moments stay as
+  //generated.  a_cells must lie inside the fine level, or there is nothing to read.  returns the
+  //number of cells whose vof count disagrees with what the fine level holds, which are left alone
+  long long attachFinerNodes(const EBGraphImplem& a_fineGraph,
+                             const IntVectSet&    a_cells);
+
   //define the faces to be the coarsened faces of the input
   void coarsenFaces(const EBGraphImplem& a_coarGhostGraph,
                     const EBGraphImplem& a_fineEBIS);
@@ -644,6 +653,10 @@ public:
   //this must go first in coarsening.  defines happen here
   void coarsenVoFs(const EBGraph&   a_fineGraph,
                    const Box& a_coarRegion);
+
+  //record what lies under cells that were generated rather than coarsened
+  long long attachFinerNodes(const EBGraph&    a_fineGraph,
+                             const IntVectSet& a_cells);
 
   //define the faces to be the coarsened faces of the input
   void coarsenFaces(const EBGraph& a_coarGhostGraph,

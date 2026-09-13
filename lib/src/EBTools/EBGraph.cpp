@@ -959,6 +959,82 @@ void EBGraphImplem::linearIn(void*           a_buf,
 }
 
 /*******************************/
+long long EBGraph::attachFinerNodes(const EBGraph&    a_fineGraph,
+                                    const IntVectSet& a_cells)
+{
+  return m_implem->attachFinerNodes(*a_fineGraph.m_implem, a_cells);
+}
+
+/*******************************/
+long long EBGraphImplem::attachFinerNodes(const EBGraphImplem& a_fineGraph,
+                                          const IntVectSet&    a_cells)
+{
+  CH_TIME("EBGraphImplem::attachFinerNodes");
+
+  long long disagreed = 0;
+
+  if (m_tag != HasIrregular)
+    {
+      //a whole or empty box holds no nodes to write a record into, and refine synthesises the
+      //finer vofs of such a cell without needing one
+      return disagreed;
+    }
+
+  for (IVSIterator ivsIt(a_cells); ivsIt.ok(); ++ivsIt)
+    {
+      const IntVect iv = ivsIt();
+
+      if (!m_region.contains(iv))
+        {
+          continue;
+        }
+
+      GraphNode& node = m_graph(iv, 0);
+
+      if (!node.isIrregular())
+        {
+          continue;
+        }
+
+      Vector<GraphNodeImplem>& nodeVec = *(node.m_cellList);
+
+      bool haveRecord = false;
+
+      for (int inode = 0; inode < nodeVec.size(); inode++)
+        {
+          haveRecord = haveRecord || (nodeVec[inode].m_finerNodes.size() > 0);
+        }
+
+      if (haveRecord)
+        {
+          continue;
+        }
+
+      const Box fineBox = ebrefine(Box(iv, iv), 2);
+
+      Vector<Vector<VolIndex> > fineVoFSets = a_fineGraph.getVoFSets(fineBox);
+
+      //coarsening this cell would have given it one vof per connected set of fine vofs.  where
+      //that is not the number it was generated with, the two descriptions of the cell disagree
+      //about its topology and there is no honest way to say which fine vofs belong to which of
+      //its vofs.  say how many and leave them, so that asking for their finer vofs still stops
+      if (fineVoFSets.size() != nodeVec.size())
+        {
+          disagreed++;
+
+          continue;
+        }
+
+      for (int inode = 0; inode < nodeVec.size(); inode++)
+        {
+          nodeVec[inode].m_finerNodes = fineVoFSets[inode];
+        }
+    }
+
+  return disagreed;
+}
+
+/*******************************/
 bool EBGraph::hasIrregular() const
 {
   return m_implem->hasIrregular();

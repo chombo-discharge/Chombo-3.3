@@ -898,7 +898,15 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
       {
         const DataIndex din = maskDit[mybox];
 
-        coarsenThisBox[din] = fineCoverage.contains(m_grids[din]);
+        // Coarsening a box reads what lies under the cells around it as well as under its own,
+        // so the fine level has to reach a cell past the box.  The outermost boxes the fine
+        // level was carried over are therefore not coarsened themselves: they are what the
+        // boxes inside them read, and are kept as they were generated.
+        Box needed = m_grids[din];
+        needed.grow(1);
+        needed &= m_domain;
+
+        coarsenThisBox[din] = fineCoverage.contains(needed);
       }
   }
 
@@ -973,6 +981,46 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
           {
             edgeBefore[din].push_back(m_graph[din].numVoFs(ivsIt()));
           }
+      }
+  }
+
+  // Coarsening a cell asks its neighbours what lies under them, whether those were coarsened or
+  // not: the face between two coarse cells is decided by testing whether the fine vofs under one
+  // reach the fine vofs under the other.  A cell in a box that was not coarsened was generated
+  // instead, and holds no such record.  Write it here, for the cells the fine level reaches,
+  // without touching the cells themselves.  The record is what the neighbour is read for; the
+  // cell keeps the vofs, arcs and moments it was generated with.
+  {
+    long long disagreed = 0;
+
+    const DataIterator& recordDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < recordDit.size(); mybox++)
+      {
+        const DataIndex din = recordDit[mybox];
+
+        if (coarsenThisBox[din])
+          {
+            continue;
+          }
+
+        IntVectSet reachable(m_grids[din]);
+        reachable &= fineCoverage;
+
+        if (reachable.isEmpty())
+          {
+            continue;
+          }
+
+        disagreed += m_graph[din].attachFinerNodes(sharedFineGraph[din], reachable);
+      }
+
+    disagreed = EBLevelDataOps::parallelSum(disagreed);
+
+    if (disagreed > 0)
+      {
+        pout() << "    " << disagreed
+               << " generated cells hold a different number of vofs than the fine level under them" << endl;
       }
   }
 
