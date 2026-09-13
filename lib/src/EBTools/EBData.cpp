@@ -694,9 +694,23 @@ coarsenVoFs(const EBDataImplem&  a_fineEBDataImplem,
 
   defineVoFData(a_coarGraph, a_validRegion);
 
+  coarsenVoFs(a_fineEBDataImplem, a_fineGraph, a_coarGraph, a_coarGraph.getIrregCells(a_validRegion));
+}
+/*******************************/
+//as above, over the cells given rather than over a whole region, and without defining the data
+//first.  a level only part of which the finer level reaches keeps what it was generated with
+//everywhere else, so the data it holds there has to survive
+void EBDataImplem::
+coarsenVoFs(const EBDataImplem&  a_fineEBDataImplem,
+            const EBGraph&       a_fineGraph,
+            const EBGraph&       a_coarGraph,
+            const IntVectSet&    a_cells)
+{
+  CH_TIME("EBDataImplem::coarsenVoFs_cells");
+
   if (a_coarGraph.hasIrregular())
     {
-      IntVectSet ivsIrreg = a_coarGraph.getIrregCells(a_validRegion);
+      IntVectSet ivsIrreg = a_cells;
       std::list<BoundaryData>  boundary;
 
       for (VoFIterator vofit(ivsIrreg, a_coarGraph); vofit.ok(); ++vofit)
@@ -805,7 +819,20 @@ coarsenFaces(const EBDataImplem& a_fineEBDataImplem,
   CH_TIME("EBDataImplem::coarsenFaces");
 
   defineFaceData(a_coarGraph, a_validRegion);
-  IntVectSet ivsIrreg = a_coarGraph.getIrregCells(a_validRegion);
+
+  coarsenFaces(a_fineEBDataImplem, a_fineGraph, a_coarGraph, a_coarGraph.getIrregCells(a_validRegion));
+}
+/*******************************/
+//as above, over the cells given rather than over a whole region, and without defining the data
+void EBDataImplem::
+coarsenFaces(const EBDataImplem& a_fineEBDataImplem,
+             const EBGraph&      a_fineGraph,
+             const EBGraph&      a_coarGraph,
+             const IntVectSet&   a_cells)
+{
+  CH_TIME("EBDataImplem::coarsenFaces_cells");
+
+  IntVectSet ivsIrreg = a_cells;
   Box fineRegion = a_fineGraph.getRegion();
   if (a_coarGraph.hasIrregular())
     {
@@ -1191,6 +1218,26 @@ coarsenVoFs(const EBData&  a_fineEBData,
             const Box&     a_validRegion)
 {
   m_implem->coarsenVoFs(*a_fineEBData.m_implem, a_fineGraph, a_coarGraph, a_validRegion);
+}
+/*******************************/
+void
+EBData::
+coarsenVoFs(const EBData&     a_fineEBData,
+            const EBGraph&    a_fineGraph,
+            const EBGraph&    a_coarGraph,
+            const IntVectSet& a_cells)
+{
+  m_implem->coarsenVoFs(*a_fineEBData.m_implem, a_fineGraph, a_coarGraph, a_cells);
+}
+/*******************************/
+void
+EBData::
+coarsenFaces(const EBData&     a_fineEBData,
+             const EBGraph&    a_fineGraph,
+             const EBGraph&    a_coarGraph,
+             const IntVectSet& a_cells)
+{
+  m_implem->coarsenFaces(*a_fineEBData.m_implem, a_fineGraph, a_coarGraph, a_cells);
 }
 /*******************************/
 void EBData::

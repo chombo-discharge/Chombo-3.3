@@ -330,6 +330,85 @@ void EBIndexSpace::define(const ProblemDomain    & a_domain,
   print_memory_line("ebis_leaving_define");
 }
 
+void EBIndexSpace::defineEveryLevel(const ProblemDomain    & a_domain,
+                                    const RealVect         & a_origin,
+                                    const Real             & a_dx,
+                                    const GeometryService  & a_geoserver,
+                                    int                      a_nCellMax,
+                                    int                      a_maxCoarsenings)
+{
+  CH_TIME("EBIndexSpace::defineEveryLevel");
+
+  pout() << "EBIndexSpace::defineEveryLevel - From domain, every level" << endl;
+
+  if (a_nCellMax > 0)
+    {
+      m_nCellMax = a_nCellMax;
+    }
+  else
+    {
+      m_nCellMax = 32;
+    }
+
+  int cellMax = a_nCellMax;
+  if ((cellMax < 0) && (m_nCellMax > 0))
+    {
+      cellMax = m_nCellMax;
+    }
+
+  pout() << "  Building level 0..." << endl;
+  buildFirstLevel(a_domain, a_origin, a_dx, a_geoserver, cellMax, a_maxCoarsenings);
+  m_ebisLevel[0]->clearMultiBoundaries();
+  m_ebisLevel[0]->printGraphSummary("    ");
+  pout() << endl;
+
+  // buildFirstLevel has worked out how many levels there are and sized the arrays. Each of the
+  // rest is built the same way the first was, from the geometry service, rather than by
+  // coarsening the one below it.
+  ProblemDomain domLevel = a_domain;
+  Real          dxLevel  = a_dx;
+
+  for (int ilev = 1; ilev < m_nlevels; ilev++)
+    {
+      pout() << "  Building level " << ilev << "..." << endl;
+
+      domLevel.coarsen(2);
+      dxLevel *= 2;
+
+      m_domainLevel[ilev] = domLevel;
+
+      // Generate the level everywhere first. Where a finer level exists it then says what the
+      // cells under it look like, overwriting what was generated there, so that the two describe
+      // one surface rather than two reconstructions of it. Where it does not, what was generated
+      // stands.
+      m_ebisLevel[ilev] = new EBISLevel(domLevel,
+                                        a_origin,
+                                        dxLevel,
+                                        a_geoserver,
+                                        cellMax,
+                                        true);
+
+      m_ebisLevel[ilev]->coarsenFrom(*m_ebisLevel[ilev-1]);
+      m_ebisLevel[ilev]->clearMultiBoundaries();
+      m_ebisLevel[ilev]->printGraphSummary("    ");
+      pout() << endl;
+    }
+
+#ifndef NDEBUG
+  for (int ilev = 0; ilev < m_nlevels; ilev++)
+    {
+      m_ebisLevel[ilev]->sanityCheck(this);
+    }
+#endif
+#ifdef CH_MPI
+  {
+    CH_TIME("EBIndexSpace::done_with_all_define_every_level_barrier");
+    MPI_Barrier(Chombo_MPI::comm);
+  }
+#endif
+  print_memory_line("ebis_leaving_define_every_level");
+}
+
 void EBIndexSpace::define(const ProblemDomain                        & a_entireDomain,
                           const RealVect                             & a_origin,
                           const Real                                 & a_dx,

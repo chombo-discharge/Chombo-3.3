@@ -94,14 +94,55 @@ public:
   void coarsenVoFs(EBISLevel&           a_fineEBIS,
                    LevelData<EBGraph>&  a_fineGraph,
                    LevelData<EBData>&   a_fineData,
-                   LevelData<EBGraph>&  a_coarGraph);
+                   LevelData<EBGraph>&  a_coarGraph,
+                   const LayoutData<IntVectSet>& a_coarsenCells);
+
+  ///
+  /**
+     Overwrite this level's graph and data with the coarsening of a finer one.
+
+     This is the whole of what the coarsening constructor does once it has its grids, split out so
+     that it can also be applied to a level that was already built from the geometry service. That
+     is what a partially refined index space needs: generate the level everywhere, then let the
+     finer level, where it exists, say what the cells under it look like.
+
+     Only the boxes the finer level actually reaches are overwritten. Elsewhere what this level was
+     built with stands, which is what lets the finer level cover part of the domain: coarsening has
+     nothing to read where it does not reach.
+
+     The fine level is copied onto a refinement of this level's grids before anything is coarsened,
+     with the ghost width each step needs, so a coarse cell on a box boundary is coarsened from
+     fine cells that are all present. That copy is also what exchanges the fine level.
+   */
+  void coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiValued = true);
 
   void fixFineToCoarse(EBISLevel& a_fineEBIS);
+
+  ///
+  /**
+     Make the two sides of the boundary of what was coarsened describe the same faces.
+
+     A face there is shared by a cell that came up through coarsening and a cell that was
+     generated at this level's own resolution, and the two read it differently: the coarsened
+     side sums what the fine faces under it hold, the generated side takes it from the interface
+     as this level sees it. For a planar interface those agree exactly; for a curved one they do
+     not, and a face cannot have two areas.
+
+     The coarsened side is kept, since it is the side that has to stay the conservative coarsening
+     of the level below. The generated cell takes that area for the shared face, and its interface
+     is then taken from what its apertures demand, which is the same rule coarsening itself uses
+     and the only one that leaves the divergence identity standing.
+
+     @param[in] a_coarsenedMask One where a cell came up through coarsening and zero where it did
+     not, with a ghost cell, so a cell can ask the same of the cell across a box boundary.
+   */
+  void reconcileSeam(const LevelData<FArrayBox>& a_coarsenedMask);
 
   void coarsenFaces(EBISLevel&           a_fineEBIS,
                     LevelData<EBGraph>&  a_fineGraph,
                     LevelData<EBData>&   a_fineData,
-                    LevelData<EBGraph>&  a_coarGraph);
+                    LevelData<EBGraph>&  a_coarGraph,
+                    const LayoutData<IntVectSet>& a_coarsenCells);
 
   long long numVoFsOnProc() const;
 

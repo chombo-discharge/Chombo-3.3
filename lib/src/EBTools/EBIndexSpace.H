@@ -69,6 +69,30 @@ public:
          int                     a_nCellMax = -1,
          int                     a_maxCoarsenings = -1);
 
+  ///
+  /**
+     Build every level from the geometry service, rather than building the finest and coarsening
+     it.
+
+     define() above asks the geometry service for the finest level only and derives the rest by
+     coarsening, which requires the finest level to describe the whole domain. Where it does not
+     -- where a level is generated over part of the domain because that is where the geometry
+     needs it -- coarsening has nothing to read outside that part, and the coarser levels come
+     out wrong there.
+
+     This asks the geometry service for each level in turn instead, so a level's coverage is
+     whatever makeGrids() hands back for it. Keeping the levels consistent with each other then
+     belongs to the geometry service: a cell that a finer level covers has to be filled from that
+     finer description rather than reconstructed independently, or the two will not agree.
+   */
+  void
+  defineEveryLevel(const ProblemDomain   & a_domain,
+                   const RealVect        & a_origin,
+                   const Real            & a_dx,
+                   const GeometryService & a_geoserver,
+                   int                     a_nCellMax = -1,
+                   int                     a_maxCoarsenings = -1);
+
 #ifdef CH_USE_HDF5
   /// reads in all levels from finest level down
   void
