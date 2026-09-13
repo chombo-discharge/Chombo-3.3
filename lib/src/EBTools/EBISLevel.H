@@ -95,7 +95,7 @@ public:
                    LevelData<EBGraph>&  a_fineGraph,
                    LevelData<EBData>&   a_fineData,
                    LevelData<EBGraph>&  a_coarGraph,
-                   const LayoutData<bool>& a_coarsenThisBox);
+                   const LayoutData<IntVectSet>& a_coarsenCells);
 
   ///
   /**
@@ -133,17 +133,16 @@ public:
      is then taken from what its apertures demand, which is the same rule coarsening itself uses
      and the only one that leaves the divergence identity standing.
 
-     @param[in] a_coarsenThisBox Which of this level's boxes were coarsened.
-     @param[in] a_fineCoverage   This level's cells that the finer level reaches.
+     @param[in] a_coarsenedMask One where a cell came up through coarsening and zero where it did
+     not, with a ghost cell, so a cell can ask the same of the cell across a box boundary.
    */
-  void reconcileSeam(const LayoutData<bool>& a_coarsenThisBox,
-                     const IntVectSet&       a_fineCoverage);
+  void reconcileSeam(const LevelData<FArrayBox>& a_coarsenedMask);
 
   void coarsenFaces(EBISLevel&           a_fineEBIS,
                     LevelData<EBGraph>&  a_fineGraph,
                     LevelData<EBData>&   a_fineData,
                     LevelData<EBGraph>&  a_coarGraph,
-                    const LayoutData<bool>& a_coarsenThisBox);
+                    const LayoutData<IntVectSet>& a_coarsenCells);
 
   long long numVoFsOnProc() const;
 

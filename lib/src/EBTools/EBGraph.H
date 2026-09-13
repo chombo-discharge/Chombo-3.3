@@ -282,6 +282,19 @@ public:
   void coarsenVoFs(const EBGraphImplem&   a_fineGraph,
                    const Box& a_coarRegion);
 
+  //replace the nodes of the given cells by the coarsening of the finer level, leaving every other
+  //cell of this graph as it stands.  this is what a level only part of which the finer level
+  //reaches needs: the cells it reaches come up through coarsening, the rest keep what they were
+  //generated with.  the cells must be ones the finer level covers, together with their
+  //neighbours, since coarsening a cell reads what lies under the cells around it
+  void coarsenVoFs(const EBGraphImplem& a_fineGraph,
+                   const IntVectSet&    a_cells);
+
+  //as coarsenFaces below, over the given cells rather than over the whole region
+  void coarsenFaces(const EBGraphImplem& a_coarGhostGraph,
+                    const EBGraphImplem& a_fineGraph,
+                    const IntVectSet&    a_cells);
+
   //record what lies under cells that were generated rather than coarsened.  a coarse cell only
   //knows its finer vofs if coarsening put them there, and the neighbour of a cell being coarsened
   //is asked for them whether it was coarsened or not.  this writes that record for cells the fine
@@ -653,6 +666,15 @@ public:
   //this must go first in coarsening.  defines happen here
   void coarsenVoFs(const EBGraph&   a_fineGraph,
                    const Box& a_coarRegion);
+
+  //replace the nodes of the given cells by the coarsening of the finer level
+  void coarsenVoFs(const EBGraph&    a_fineGraph,
+                   const IntVectSet& a_cells);
+
+  //coarsen the faces of the given cells only
+  void coarsenFaces(const EBGraph&    a_coarGhostGraph,
+                    const EBGraph&    a_fineEBIS,
+                    const IntVectSet& a_cells);
 
   //record what lies under cells that were generated rather than coarsened
   long long attachFinerNodes(const EBGraph&    a_fineGraph,

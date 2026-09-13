@@ -164,10 +164,25 @@ public:
 
   ///
   void
+  coarsenVoFs(const EBDataImplem&  a_fineEBDataImplem,
+              const EBGraph&       a_fineGraph,
+              const EBGraph&       a_coarGraph,
+              const IntVectSet&    a_cells);
+
+  ///
+  void
   coarsenFaces(const EBDataImplem& a_fineEBDataImplem,
                const EBGraph&      a_fineGraph,
                const EBGraph&      a_coarGraph,
                const Box&          a_validRegion);
+
+  ///
+  void
+  coarsenFaces(const EBDataImplem& a_fineEBDataImplem,
+               const EBGraph&      a_fineGraph,
+               const EBGraph&      a_coarGraph,
+               const IntVectSet&   a_cells);
+
   ///
   const Real& volFrac(const VolIndex& a_vof) const;
 
@@ -389,6 +404,18 @@ public:
                const EBGraph& a_fineGraph,
                const EBGraph& a_coarGraph,
                const Box&     a_validRegion);
+
+  void
+  coarsenVoFs(const EBData&     a_fineEBData,
+              const EBGraph&    a_fineGraph,
+              const EBGraph&    a_coarGraph,
+              const IntVectSet& a_cells);
+
+  void
+  coarsenFaces(const EBData&     a_fineEBData,
+               const EBGraph&    a_fineGraph,
+               const EBGraph&    a_coarGraph,
+               const IntVectSet& a_cells);
   ///
   const Real& volFrac(const VolIndex& a_vof) const;
 

@@ -959,6 +959,171 @@ void EBGraphImplem::linearIn(void*           a_buf,
 }
 
 /*******************************/
+void EBGraph::coarsenVoFs(const EBGraph&    a_fineGraph,
+                          const IntVectSet& a_cells)
+{
+  m_implem->coarsenVoFs(*a_fineGraph.m_implem, a_cells);
+}
+
+/*******************************/
+void EBGraph::coarsenFaces(const EBGraph&    a_coarGhostGraph,
+                           const EBGraph&    a_fineEBIS,
+                           const IntVectSet& a_cells)
+{
+  m_implem->coarsenFaces(*a_coarGhostGraph.m_implem, *a_fineEBIS.m_implem, a_cells);
+}
+
+/*******************************/
+void EBGraphImplem::coarsenVoFs(const EBGraphImplem& a_fineGraph,
+                                const IntVectSet&    a_cells)
+{
+  CH_TIME("EBGraphImplem::coarsenVoFs_cells");
+
+  if (a_cells.isEmpty())
+    {
+      return;
+    }
+
+  m_domain = ebcoarsen(a_fineGraph.getDomain(), 2);
+  m_isDomainSet = true;
+  m_isDefined = true;
+
+  //a whole or empty box carries no nodes to replace, so it is given them before anything else.
+  //the cells this is not asked about keep what the box said about them
+  if (m_tag != HasIrregular)
+    {
+      const bool wasCovered = (m_tag == AllCovered);
+
+      m_tag = HasIrregular;
+
+      m_graph.define(m_region, 1);
+
+      for (BoxIterator bit(m_region); bit.ok(); ++bit)
+        {
+          if (wasCovered)
+            {
+              m_graph(bit(), 0).defineAsCovered();
+            }
+          else
+            {
+              m_graph(bit(), 0).defineAsRegular();
+            }
+        }
+    }
+
+  for (IVSIterator ivsIt(a_cells); ivsIt.ok(); ++ivsIt)
+    {
+      const IntVect iv = ivsIt();
+
+      if (!m_region.contains(iv))
+        {
+          continue;
+        }
+
+      const Box fineBox = ebrefine(Box(iv, iv), 2);
+
+      if (a_fineGraph.isRegular(fineBox))
+        {
+          m_graph(iv, 0).defineAsRegular();
+        }
+      else if (a_fineGraph.isCovered(fineBox))
+        {
+          m_graph(iv, 0).defineAsCovered();
+        }
+      else
+        {
+          //one coarse vof per connected set of fine vofs, each holding the record of which fine
+          //vofs it came from
+          Vector<Vector<VolIndex> > fineVoFSets = a_fineGraph.getVoFSets(fineBox);
+
+          m_graph(iv, 0).defineAsCovered();
+
+          for (int iset = 0; iset < fineVoFSets.size(); iset++)
+            {
+              GraphNodeImplem newImplem;
+
+              newImplem.m_finerNodes = fineVoFSets[iset];
+
+              m_graph(iv, 0).addIrregularNode(newImplem);
+            }
+        }
+    }
+
+  //the cells that are irregular, and those holding more than one vof, are held alongside the
+  //nodes and both have just changed.  they are read off the nodes again rather than tracked
+  //through the replacements
+  if (m_irregIVS != NULL) delete m_irregIVS;
+  if (m_multiIVS != NULL) delete m_multiIVS;
+
+  m_irregIVS = new IntVectSet(DenseIntVectSet(m_region, false));
+  m_multiIVS = new IntVectSet(DenseIntVectSet(m_region, false));
+
+  for (BoxIterator bit(m_region); bit.ok(); ++bit)
+    {
+      const GraphNode& node = m_graph(bit(), 0);
+
+      if (node.isIrregular())
+        {
+          (*m_irregIVS) |= bit();
+
+          if (node.size() > 1)
+            {
+              (*m_multiIVS) |= bit();
+            }
+        }
+    }
+
+  m_isMaskBuilt = false;
+}
+
+/*******************************/
+void EBGraphImplem::coarsenFaces(const EBGraphImplem& a_coarGhostGraph,
+                                 const EBGraphImplem& a_fineGraph,
+                                 const IntVectSet&    a_cells)
+{
+  CH_TIME("EBGraphImplem::coarsenFaces_cells");
+
+  if (!hasIrregular())
+    {
+      return;
+    }
+
+  CH_assert(a_coarGhostGraph.getDomain() == m_domain);
+
+  for (IVSIterator ivsIt(a_cells); ivsIt.ok(); ++ivsIt)
+    {
+      const IntVect iv = ivsIt();
+
+      if (!m_region.contains(iv) || !isIrregular(iv))
+        {
+          continue;
+        }
+
+      Vector<VolIndex> vofsCoar = getVoFs(iv);
+
+      Vector<GraphNodeImplem>& nodes = *(m_graph(iv, 0).m_cellList);
+
+      for (int ivof = 0; ivof < vofsCoar.size(); ivof++)
+        {
+          GraphNodeImplem& node = nodes[vofsCoar[ivof].cellIndex()];
+
+          for (int idir = 0; idir < SpaceDim; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  Vector<int> coarArcs = coarsenFaces(vofsCoar[ivof],
+                                                      a_coarGhostGraph,
+                                                      a_fineGraph,
+                                                      idir, sit());
+
+                  node.m_arc[IrregNode::index(idir, sit())] = coarArcs;
+                }
+            }
+        }
+    }
+}
+
+/*******************************/
 long long EBGraph::attachFinerNodes(const EBGraph&    a_fineGraph,
                                     const IntVectSet& a_cells)
 {
