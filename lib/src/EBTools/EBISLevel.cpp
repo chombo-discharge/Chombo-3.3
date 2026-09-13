@@ -1030,6 +1030,10 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
   //overallMemoryUsage();
   //create coarse faces from fine
   coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph, coarsenThisBox);
+
+  // The two sides of the edge of what was coarsened read the faces they share differently.  Make
+  // them agree while the coarse ghost graph still describes the graph the data sits on
+  reconcileSeam(coarsenThisBox, fineCoverage);
   //overallMemoryUsage();
   //fix the regular next to the multivalued cells
   //to be full irregular cells
@@ -1039,7 +1043,7 @@ void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiV
       fixRegularNextToMultiValued();
     }
   //  dumpDebug(string("EBIS::after FRNTM"));
-  
+
   //overallMemoryUsage();
   // fix the fine->coarseVoF thing.
 //  pout() << "before fix fine to coarse " << endl;
@@ -1158,6 +1162,220 @@ void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
       const EBGraph& coarEBGraph = coarGhostEBGraph[din];
 
       m_data[din].coarsenVoFs(fineEBData, fineEBGraph, coarEBGraph, m_grids[din]);
+    }
+}
+
+void EBISLevel::reconcileSeam(const LayoutData<bool>& a_coarsenThisBox,
+                              const IntVectSet&       a_fineCoverage)
+{
+  CH_TIME("EBISLevel::reconcileSeam");
+
+  // Which cells came up through coarsening.  Every rank can work this out for every box, since
+  // the box array and the coverage of the finer level are both known everywhere, and a cell on
+  // the far side of a box boundary has to be placed as readily as one of our own
+  IntVectSet coarsenedCells;
+  {
+    const Vector<Box>& allBoxes = m_grids.boxArray();
+
+    for (int ibox = 0; ibox < allBoxes.size(); ibox++)
+      {
+        Box needed = allBoxes[ibox];
+        needed.grow(1);
+        needed &= m_domain;
+
+        if (a_fineCoverage.contains(needed))
+          {
+            coarsenedCells |= allBoxes[ibox];
+          }
+      }
+  }
+
+  if (coarsenedCells.isEmpty())
+    {
+      return;
+    }
+
+  // What each cell holds for each of its own faces, so that a cell can be told what the cell
+  // across a box boundary holds for the face they share.  Sending it as cell data rather than as
+  // face data is what makes the answer unambiguous: a face belongs to two cells and both boxes
+  // store it, so exchanging the faces themselves delivers whichever of the two the copy reached
+  // last, which for half of them is the value we already had
+  const int numSides = 2 * SpaceDim;
+
+  LevelData<FArrayBox> faceView(m_grids, numSides, IntVect::Unit);
+
+  const DataIterator& dit = m_grids.dataIterator();
+
+  for (int mybox = 0; mybox < dit.size(); mybox++)
+    {
+      const DataIndex din = dit[mybox];
+
+      const EBGraph& graph = m_graph[din];
+      const EBData&  data  = m_data[din];
+
+      FArrayBox& view = faceView[din];
+
+      view.setVal(0.0);
+
+      for (BoxIterator bit(m_grids[din]); bit.ok(); ++bit)
+        {
+          const IntVect iv = bit();
+
+          if (graph.isCovered(iv))
+            {
+              continue;
+            }
+
+          if (graph.isRegular(iv))
+            {
+              for (int iside = 0; iside < numSides; iside++)
+                {
+                  view(iv, iside) = 1.0;
+                }
+
+              continue;
+            }
+
+          const Vector<VolIndex> vofs = graph.getVoFs(iv);
+
+          for (int idir = 0; idir < SpaceDim; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  Real area = 0.0;
+
+                  for (int ivof = 0; ivof < vofs.size(); ivof++)
+                    {
+                      const Vector<FaceIndex> faces = graph.getFaces(vofs[ivof], idir, sit());
+
+                      for (int iface = 0; iface < faces.size(); iface++)
+                        {
+                          area += data.areaFrac(faces[iface]);
+                        }
+                    }
+
+                  view(iv, 2 * idir + ((sit() == Side::Hi) ? 1 : 0)) = area;
+                }
+            }
+        }
+    }
+
+  faceView.exchange();
+
+  long long ambiguous = 0;
+
+  for (int mybox = 0; mybox < dit.size(); mybox++)
+    {
+      const DataIndex din = dit[mybox];
+
+      if (a_coarsenThisBox[din])
+        {
+          continue;
+        }
+
+      const EBGraph&   graph = m_graph[din];
+      const FArrayBox& view  = faceView[din];
+
+      IntVectSet seam = graph.getIrregCells(m_grids[din]);
+
+      for (IVSIterator ivsIt(seam); ivsIt.ok(); ++ivsIt)
+        {
+          const IntVect iv = ivsIt();
+
+          bool touchesCoarsened = false;
+
+          for (int idir = 0; idir < SpaceDim; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  if (coarsenedCells.contains(iv + sign(sit()) * BASISV(idir)))
+                    {
+                      touchesCoarsened = true;
+                    }
+                }
+            }
+
+          if (!touchesCoarsened)
+            {
+              continue;
+            }
+
+          const Vector<VolIndex> vofs = graph.getVoFs(iv);
+
+          // A cell holding more than one vof, or facing more than one across the seam, leaves no
+          // way to say which of them the shared face belongs to.  Say how many rather than guess
+          bool single = (vofs.size() == 1);
+
+          for (int idir = 0; idir < SpaceDim && single; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  if (!coarsenedCells.contains(iv + sign(sit()) * BASISV(idir)))
+                    {
+                      continue;
+                    }
+
+                  if (graph.getFaces(vofs[0], idir, sit()).size() > 1)
+                    {
+                      single = false;
+                    }
+                }
+            }
+
+          if (!single)
+            {
+              ambiguous++;
+
+              continue;
+            }
+
+          const VolIndex& vof = vofs[0];
+
+          RealVect apertureVector = RealVect::Zero;
+
+          for (int idir = 0; idir < SpaceDim; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  const IntVect other = iv + sign(sit()) * BASISV(idir);
+
+                  const Vector<FaceIndex> faces = graph.getFaces(vof, idir, sit());
+
+                  Real area = 0.0;
+
+                  for (int iface = 0; iface < faces.size(); iface++)
+                    {
+                      FaceData& here = m_data[din].getFaceData(idir)(faces[iface], 0);
+
+                      // take what the coarsened side holds, and keep it, so that whichever side a
+                      // reader takes the face from it reads the same number
+                      if (coarsenedCells.contains(other))
+                        {
+                          here.m_areaFrac = view(other, 2 * idir + ((sit() == Side::Hi) ? 0 : 1));
+                        }
+
+                      area += here.m_areaFrac;
+                    }
+
+                  apertureVector[idir] += (sit() == Side::Hi) ? area : -area;
+                }
+            }
+
+          VolData& volData = m_data[din].getVolData()(vof, 0);
+
+          const Real area = apertureVector.vectorLength();
+
+          volData.m_averageFace.m_bndryArea = area;
+          volData.m_averageFace.m_normal    = (area > 0.0) ? (apertureVector / area) : RealVect::Zero;
+        }
+    }
+
+  ambiguous = EBLevelDataOps::parallelSum(ambiguous);
+
+  if (ambiguous > 0)
+    {
+      pout() << "    " << ambiguous
+             << " cells on the edge of what was coarsened face more than one vof and were left alone" << endl;
     }
 }
 

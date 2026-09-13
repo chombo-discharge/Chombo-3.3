@@ -238,6 +238,15 @@ public:
     return m_volData;
   }
 
+  BaseIFFAB<FaceData>& getFaceData(int a_dir)
+  {
+    return m_faceData[a_dir];
+  }
+  const BaseIFFAB<FaceData>& getFaceData(int a_dir) const
+  {
+    return m_faceData[a_dir];
+  }
+
   ///
   void addFullIrregularVoFs(const IntVectSet& a_vofsToChange,
                             const EBGraph&    a_newGhostGraph,
@@ -467,6 +476,16 @@ public:
   const BaseIVFAB<VolData>& getVolData() const
   {
     return m_implem->getVolData();
+  }
+
+  BaseIFFAB<FaceData>& getFaceData(int a_dir)
+  {
+    return m_implem->getFaceData(a_dir);
+  }
+
+  const BaseIFFAB<FaceData>& getFaceData(int a_dir) const
+  {
+    return m_implem->getFaceData(a_dir);
   }
 
   ///

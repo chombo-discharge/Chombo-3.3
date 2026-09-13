@@ -118,6 +118,27 @@ public:
 
   void fixFineToCoarse(EBISLevel& a_fineEBIS);
 
+  ///
+  /**
+     Make the two sides of the boundary of what was coarsened describe the same faces.
+
+     A face there is shared by a cell that came up through coarsening and a cell that was
+     generated at this level's own resolution, and the two read it differently: the coarsened
+     side sums what the fine faces under it hold, the generated side takes it from the interface
+     as this level sees it. For a planar interface those agree exactly; for a curved one they do
+     not, and a face cannot have two areas.
+
+     The coarsened side is kept, since it is the side that has to stay the conservative coarsening
+     of the level below. The generated cell takes that area for the shared face, and its interface
+     is then taken from what its apertures demand, which is the same rule coarsening itself uses
+     and the only one that leaves the divergence identity standing.
+
+     @param[in] a_coarsenThisBox Which of this level's boxes were coarsened.
+     @param[in] a_fineCoverage   This level's cells that the finer level reaches.
+   */
+  void reconcileSeam(const LayoutData<bool>& a_coarsenThisBox,
+                     const IntVectSet&       a_fineCoverage);
+
   void coarsenFaces(EBISLevel&           a_fineEBIS,
                     LevelData<EBGraph>&  a_fineGraph,
                     LevelData<EBData>&   a_fineData,
