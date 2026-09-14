@@ -27,6 +27,7 @@
 #include "FaceIndex.H"
 #include "EBGraph.H"
 #include "BaseIVFAB.H"
+#include "TreeIntVectSet.H"
 #include "EBData.H"
 #include "EBISBox.H"
 #include "EBISLayout.H"
@@ -244,6 +245,33 @@ public:
 
   /// Fetch what the geometry service kept for this level's cut cells, once.
   void defineSurfaces();
+
+  /** Add boxes to this level, cutting them from the cells of the level one coarser.
+
+      The boxes have to be disjoint from this level's own, and two-aligned so that their
+      coarsening is a layout the coarser level's surfaces can be fetched onto.  The coarser level
+      has to already describe the parents of those boxes together with a ring around them, which
+      is the caller's business.
+
+      What is already here is kept and copied over; only the new boxes are cut.  Collective.
+      \param a_newBoxes Boxes to add, disjoint from this level's grids and two-aligned.
+      \param a_coarser  The level one coarser, which the new boxes are cut from.
+  */
+  void extendTo(const Vector<Box>& a_newBoxes, EBISLevel& a_coarser);
+
+  /** Record what lies under the given cells of this level, reading it off the level one finer.
+
+      A cell holds no record of the cells beneath it unless it was coarsened, and a cell whose
+      finer cells were cut out of it was not.  GraphNode::refine stops on such a cell, and
+      EBISLayout promises to be able to refine every level below the finest, so the record has to
+      be written for the cells the extension gave children to.  The cells themselves are not
+      touched -- they keep the vofs, arcs and moments they were made with.
+
+      Collective.
+      \param a_finer Level one finer, already extended to cover the cells.
+      \param a_cells Cells of this level to write the record for.
+  */
+  void attachFinerNodesFrom(EBISLevel& a_finer, const TreeIntVectSet& a_cells);
 
   /// Number of values kept per cut cell, or zero if the geometry service keeps none.
   int numSurfaceComponents() const;

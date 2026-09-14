@@ -24,6 +24,7 @@
 #include "EBGraphFactory.H"
 #include "EBDataFactory.H"
 #include "BaseIVFactory.H"
+#include "LoadBalance.H"
 #include "EBISLayout.H"
 #include "VoFIterator.H"
 #include "IrregNode.H"
@@ -630,7 +631,7 @@ void EBISLevel::defineSurfaces()
     {
       const DataIndex din = dit();
 
-      m_geoserver->getSurfaces(cells[din], values[din], m_grids[din], m_dx, din);
+      m_geoserver->getSurfaces(cells[din], values[din], m_grids[din], m_dx);
 
       IntVectSet ivs;
 
@@ -671,6 +672,211 @@ void EBISLevel::defineSurfaces()
               fab(vof, comp) = theVals[n*ncomp + comp];
             }
         }
+    }
+}
+
+void EBISLevel::extendTo(const Vector<Box>& a_newBoxes, EBISLevel& a_coarser)
+{
+  CH_TIME("EBISLevel::extendTo");
+
+  CH_assert(a_newBoxes.size() > 0);
+  CH_assert(m_geoserver != NULL);
+
+  // The parents have to be on the coarser level rather than on the geometry service, since the
+  // service keeps them on layouts of its own and a box being cut wants the parents of its ghost
+  // cells too -- which generally sit on another rank.
+  a_coarser.defineSurfaces();
+
+  const int ncomp = a_coarser.numSurfaceComponents();
+
+  CH_assert(ncomp > 0);
+
+  const Interval interv(0, ncomp - 1);
+
+  Vector<Box> newBoxes = a_newBoxes;
+  Vector<int> newRanks;
+
+  LoadBalance(newRanks, newBoxes);
+
+  DisjointBoxLayout newGrids(newBoxes, newRanks, m_domain);
+
+  // The parents of a box reach one coarse cell past its own coarsening, since the graph is built
+  // over the box grown by one and the data asks the graph for one further still.  Two is taken
+  // rather than one so that the parent graph reaches past the parent data, which is what defining
+  // face data needs.
+  Vector<Box> parentBoxes(newBoxes.size());
+
+  for (int i = 0; i < newBoxes.size(); i++)
+    {
+      CH_assert(newBoxes[i] == refine(coarsen(newBoxes[i], 2), 2));
+
+      parentBoxes[i] = coarsen(newBoxes[i], 2);
+    }
+
+  DisjointBoxLayout parentGrids(parentBoxes, newRanks, a_coarser.m_domain);
+
+  const int     parentGhost     = 2;
+  const IntVect parentGhostVect = parentGhost*IntVect::Unit;
+
+  EBISLayout parentLayout;
+  a_coarser.fillEBISLayout(parentLayout, parentGrids, parentGhost);
+
+  // A surface was kept for every cell the generator called irregular, so the graph is what says
+  // where they are -- which is also what lays the destination out to receive them.
+  LayoutData<IntVectSet> parentSets(parentGrids);
+
+  DataIterator pdit = parentGrids.dataIterator();
+
+  for (pdit.begin(); pdit.ok(); ++pdit)
+    {
+      const Box grown = grow(parentGrids[pdit()], parentGhostVect) & a_coarser.m_domain.domainBox();
+
+      parentSets[pdit()] = parentLayout[pdit()].getEBGraph().getIrregCells(grown);
+    }
+
+  BaseIVFactory<Real> parentFact(parentLayout, parentSets);
+
+  LevelData<BaseIVFAB<Real> > parents(parentGrids, ncomp, parentGhostVect, parentFact);
+
+  {
+    Copier copier(a_coarser.m_grids, parentGrids, a_coarser.m_domain, parentGhostVect);
+
+    a_coarser.m_surface.copyTo(interv, parents, interv, copier);
+  }
+
+  // cut the new boxes
+  EBGraphFactory graphfact(m_domain);
+  EBDataFactory  datafact;
+
+  LevelData<EBGraph> newGraph(newGrids, 1, IntVect::Unit, graphfact);
+  LevelData<EBData>  newData (newGrids, 1, IntVect::Zero, datafact);
+
+  DataIterator ndit = newGrids.dataIterator();
+
+  for (ndit.begin(); ndit.ok(); ++ndit)
+    {
+      const DataIndex din = ndit();
+
+      const Box region      = grow(newGrids[din], 1) & m_domain.domainBox();
+      const Box ghostRegion = grow(region,        1) & m_domain.domainBox();
+
+      BaseFab<int>      regIrregCovered(ghostRegion, 1);
+      Vector<IrregNode> nodes;
+
+      const bool cut = m_geoserver->fillRefinedGraph(regIrregCovered, nodes, region, ghostRegion,
+                                                     m_domain, m_origin, m_dx,
+                                                     parents[din], a_coarser.m_dx);
+
+      if (!cut)
+        {
+          MayDay::Error("EBISLevel::extendTo - the geometry service could not cut a box it was asked for");
+        }
+
+      newGraph[din].buildGraph(regIrregCovered, nodes, region, m_domain);
+      newData [din].define(newGraph[din], nodes, newGrids[din]);
+    }
+
+  // the level is what it was, plus the new boxes
+  Vector<Box> allBoxes;
+  Vector<int> allRanks;
+
+  for (LayoutIterator lit = m_grids.layoutIterator(); lit.ok(); ++lit)
+    {
+      allBoxes.push_back(m_grids[lit()]);
+      allRanks.push_back(m_grids.procID(lit()));
+    }
+
+  for (int i = 0; i < newBoxes.size(); i++)
+    {
+      allBoxes.push_back(newBoxes[i]);
+      allRanks.push_back(newRanks[i]);
+    }
+
+  DisjointBoxLayout allGrids(allBoxes, allRanks, m_domain);
+
+  const Interval one(0, 0);
+
+  // EBData is laid out against its graph and keeps a reference to it, so the two have to be
+  // rebuilt together: defining the data against a temporary graph and then replacing this
+  // level's graph underneath it leaves the data describing a graph the level no longer holds.
+  // That is the "oldgraph/newgraph" hazard this file warns about above.
+  LevelData<EBGraph> oldGraph;
+  oldGraph.define(m_graph, graphfact);
+
+  LevelData<EBData> oldData;
+  oldData.define(m_data, datafact);
+
+  m_grids = allGrids;
+
+  m_graph.define(m_grids, 1, IntVect::Unit, graphfact);
+
+  oldGraph.copyTo(one, m_graph, one);
+  newGraph.copyTo(one, m_graph, one);
+
+  m_data.define(m_grids, 1, IntVect::Zero, datafact);
+
+  DataIterator adit = m_grids.dataIterator();
+
+  for (adit.begin(); adit.ok(); ++adit)
+    {
+      m_data[adit()].defineVoFData (m_graph[adit()], m_grids[adit()]);
+      m_data[adit()].defineFaceData(m_graph[adit()], m_grids[adit()]);
+    }
+
+  oldData.copyTo(one, m_data, one);
+  newData.copyTo(one, m_data, one);
+
+
+  // what was kept for the old cells no longer covers the level, and the cache is laid out against
+  // grids that have changed
+  m_surface.clear();
+  m_hasSurface = false;
+  m_cache.clear();
+}
+
+void EBISLevel::attachFinerNodesFrom(EBISLevel& a_finer, const TreeIntVectSet& a_cells)
+{
+  CH_TIME("EBISLevel::attachFinerNodesFrom");
+
+  DisjointBoxLayout fineFromCoar;
+  refine(fineFromCoar, m_grids, 2);
+  fineFromCoar.close();
+
+  EBGraphFactory fineFact(a_finer.m_domain);
+
+  LevelData<EBGraph> sharedFineGraph(fineFromCoar, 1, IntVect::Zero, fineFact);
+
+  const Interval one(0, 0);
+
+  a_finer.m_graph.copyTo(one, sharedFineGraph, one);
+
+  const IntVectSet wanted(a_cells);
+
+  long long disagreed = 0;
+
+  DataIterator dit = m_grids.dataIterator();
+
+  for (dit.begin(); dit.ok(); ++dit)
+    {
+      const DataIndex din = dit();
+
+      IntVectSet cells = wanted;
+      cells &= m_grids[din];
+
+      if (cells.isEmpty())
+        {
+          continue;
+        }
+
+      disagreed += m_graph[din].attachFinerNodes(sharedFineGraph[din], cells);
+    }
+
+  disagreed = EBLevelDataOps::parallelSum(disagreed);
+
+  if (disagreed > 0)
+    {
+      pout() << "    " << disagreed
+             << " extended cells hold a different number of vofs than the level under them" << endl;
     }
 }
 

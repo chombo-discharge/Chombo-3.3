@@ -824,6 +824,136 @@ int EBIndexSpace::getLevel(const ProblemDomain& a_domain) const
   return whichlev;
 }
 
+bool EBIndexSpace::levelDescribes(const int a_level, const TreeIntVectSet& a_region) const
+{
+  TreeIntVectSet left = a_region;
+
+  const DisjointBoxLayout& grids = m_ebisLevel[a_level]->m_grids;
+
+  for (LayoutIterator lit = grids.layoutIterator(); lit.ok(); ++lit)
+    {
+      left -= grids[lit()];
+
+      if (left.isEmpty())
+        {
+          return true;
+        }
+    }
+
+  return left.isEmpty();
+}
+
+void EBIndexSpace::extendLevel(const int a_level, const TreeIntVectSet& a_region) const
+{
+  CH_TIME("EBIndexSpace::extendLevel");
+
+  if (a_region.isEmpty() || this->levelDescribes(a_level, a_region))
+    {
+      return;
+    }
+
+  EBISLevel& level = *m_ebisLevel[a_level];
+
+  if (level.numSurfaceComponents() <= 0)
+    {
+      // The geometry service keeps nothing, so it cannot cut a cell it has already made.  This is
+      // every service but the polyhedral one, and a level none of them carried stays uncarried --
+      // which is the behaviour every existing configuration has.
+      return;
+    }
+
+  if (a_level + 1 >= m_nlevels)
+    {
+      MayDay::Error("EBIndexSpace::extendLevel - asked for a region the coarsest level does not describe");
+    }
+
+  const Box& domainBox = level.m_domain.domainBox();
+
+  // The new boxes are laid out at the coarser level's resolution and then refined, which makes
+  // them two-aligned, so that coarsening them gives a layout the parents can be fetched onto.
+  // This level's own boxes are two-aligned already -- a level's grids come from bisecting the
+  // domain, and the grids asked about come from refining a coarser layout -- and the subtraction
+  // below relies on it, since a coarse cell is only dropped when the whole of it is already here.
+  TreeIntVectSet wantedCoarse;
+
+  {
+    Vector<Box> regionBoxes = a_region.createBoxes();
+
+    for (int i = 0; i < regionBoxes.size(); i++)
+      {
+        Box box = regionBoxes[i] & domainBox;
+
+        if (!box.isEmpty())
+          {
+            wantedCoarse |= coarsen(box, 2);
+          }
+      }
+  }
+
+  for (LayoutIterator lit = level.m_grids.layoutIterator(); lit.ok(); ++lit)
+    {
+      const Box& box = level.m_grids[lit()];
+
+      // Skipping a box here rather than subtracting it would let a new box overlap one the level
+      // already holds, and the two would then be handed to a DisjointBoxLayout together.  A
+      // level's boxes come from bisecting the domain and the grids asked about come from
+      // refining a coarser layout, so this holds; it is checked rather than assumed because the
+      // way it fails is silent.
+      if (box != refine(coarsen(box, 2), 2))
+        {
+          MayDay::Error("EBIndexSpace::extendLevel - a level being extended holds a box that is not two-aligned");
+        }
+
+      wantedCoarse -= coarsen(box, 2);
+    }
+
+  if (wantedCoarse.isEmpty())
+    {
+      return;
+    }
+
+  Vector<Box> coarseBoxes = wantedCoarse.createBoxes();
+
+  // The parents of a box reach a ring around its coarsening, so that is what the coarser level
+  // has to describe before anything can be cut from it.
+  TreeIntVectSet parentRegion;
+
+  for (int i = 0; i < coarseBoxes.size(); i++)
+    {
+      Box grown = grow(coarseBoxes[i], 2);
+      grown &= coarsen(domainBox, 2);
+
+      parentRegion |= grown;
+    }
+
+  this->extendLevel(a_level + 1, parentRegion);
+
+  if (!this->levelDescribes(a_level + 1, parentRegion))
+    {
+      MayDay::Error("EBIndexSpace::extendLevel - the coarser level could not be made to describe the parents");
+    }
+
+  Vector<Box> newBoxes;
+
+  for (int i = 0; i < coarseBoxes.size(); i++)
+    {
+      Vector<Box> chopped;
+      domainSplit(coarseBoxes[i], chopped, m_nCellMax, 1);
+
+      for (int j = 0; j < chopped.size(); j++)
+        {
+          newBoxes.push_back(refine(chopped[j], 2));
+        }
+    }
+
+  level.extendTo(newBoxes, *m_ebisLevel[a_level + 1]);
+
+  // The cells just given children hold no record of them: only coarsening writes that, and these
+  // were cut rather than coarsened.  GraphNode::refine stops on a cell without it, and EBISLayout
+  // promises to be able to refine every level below the finest.
+  m_ebisLevel[a_level + 1]->attachFinerNodesFrom(level, wantedCoarse);
+}
+
 void EBIndexSpace::fillEBISLayout(EBISLayout&              a_ebisLayout,
                                   const DisjointBoxLayout& a_grids,
                                   const ProblemDomain&     a_domain,
@@ -840,6 +970,43 @@ void EBIndexSpace::fillEBISLayout(EBISLayout&              a_ebisLayout,
              << " does not correspond to any refinement of EBIS" << endl;
       MayDay::Error("Bad argument to EBIndexSpace::fillEBISLayout");
     }
+  // The layout copies the graph from the level with one more ghost cell than it was asked for,
+  // and a box the level does not describe would silently keep whatever the factory made.  So the
+  // level is made to describe it first, by cutting it from the level one coarser, which a
+  // geometry service that keeps nothing declines and every existing configuration therefore
+  // leaves exactly as it was.
+  {
+    TreeIntVectSet wanted;
+
+    for (LayoutIterator lit = a_grids.layoutIterator(); lit.ok(); ++lit)
+      {
+        Box box = grow(a_grids[lit()], a_nghost + 1);
+        box &= a_domain.domainBox();
+
+        wanted |= box;
+      }
+
+    this->extendLevel(whichlev, wanted);
+
+    // EBISLayout promises that every level below the finest can be refined, and it redeems that
+    // promise out of the copy of the graph it takes just below -- EBISLayoutImplem::refine reads
+    // the coarse box's own record.  So the level one finer has to be made to describe what lies
+    // under these cells now, before the copy, and not when that finer level is itself asked for.
+    if (whichlev > 0)
+      {
+        TreeIntVectSet finer;
+
+        Vector<Box> boxes = wanted.createBoxes();
+
+        for (int i = 0; i < boxes.size(); i++)
+          {
+            finer |= refine(boxes[i], 2);
+          }
+
+        this->extendLevel(whichlev - 1, finer);
+      }
+  }
+
   m_ebisLevel[whichlev]->fillEBISLayout(a_ebisLayout, a_grids, a_nghost);
   a_ebisLayout.setEBIS(this); //need for mf
 }

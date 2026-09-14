@@ -190,15 +190,15 @@ public:
       keeps nothing returns nothing, which is the default.
       \param a_cells   Cut cells of the box, in the order their values appear.
       \param a_values  numSurfaceComponents() values per entry of a_cells.
-      \param a_region  Box wanted.
-      \param a_dx      Grid spacing of the level the box belongs to.
-      \param a_di      Index of the box in the layout the service was given.
+      Asked for by region rather than by box index, because the level that asks may have grown
+      since the service made it and its boxes are then no longer the service's own.
+      \param a_region  Cells wanted.
+      \param a_dx      Grid spacing of the level the cells belong to.
   */
   virtual void getSurfaces(Vector<IntVect>& a_cells,
                            Vector<Real>&    a_values,
                            const Box&       a_region,
-                           const Real&      a_dx,
-                           const DataIndex& a_di) const;
+                           const Real&      a_dx) const;
 
   /** Spacing of the coarser level a region has to be cut from, or a negative number if the
       service cannot cut it.

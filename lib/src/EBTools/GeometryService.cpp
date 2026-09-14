@@ -77,8 +77,7 @@ int GeometryService::numSurfaceComponents() const
 void GeometryService::getSurfaces(Vector<IntVect>& a_cells,
                                   Vector<Real>&    a_values,
                                   const Box&       a_region,
-                                  const Real&      a_dx,
-                                  const DataIndex& a_di) const
+                                  const Real&      a_dx) const
 {
   a_cells.resize(0);
   a_values.resize(0);

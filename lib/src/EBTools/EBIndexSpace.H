@@ -26,6 +26,7 @@
 #include "EBISLayout.H"
 #include "GeometryService.H"
 #include "EBISLevel.H"
+#include "TreeIntVectSet.H"
 
 #include "NamespaceHeader.H"
 
@@ -307,6 +308,35 @@ public:
   static bool s_useMemoryLoadBalance;
 
 private:
+  /** Make a level describe a region it was not carried over, by cutting the cells of the level
+      one coarser.
+
+      Only a geometry service that keeps what its cut cells were made from can do this, and a
+      level whose service keeps nothing is left as it is.
+
+      The cut is always one refinement deep.  Two levels that were both generated are not
+      refinements of one another -- a coarse level near what was carried is the coarsening of the
+      finer one, so cutting it does not give back the cells it was coarsened from -- and boxes
+      taking different ancestors would then disagree on the faces between them.  So the level one
+      coarser is made to describe what is needed first, by the same route, which terminates at the
+      coarsest level because that one is always carried in full.
+
+      The level only ever grows.  A region that stops being asked for keeps what was built for it,
+      since the same region tends to be asked for again and a cell still there is a cell nobody
+      has to cut twice.
+
+      Collective.
+      \param a_level  Level to extend, finest first.
+      \param a_region Cells the level has to describe, on its own resolution.
+  */
+  void extendLevel(const int a_level, const TreeIntVectSet& a_region) const;
+
+  /** Whether a level already describes every cell of a region.
+      \param a_level  Level to ask about, finest first.
+      \param a_region Cells wanted, on that level's resolution.
+  */
+  bool levelDescribes(const int a_level, const TreeIntVectSet& a_region) const;
+
   Vector<RefCountedPtr<EBIndexSpace> > findConnectedComponents(int        & a_numComponents,
                                                                const bool & a_onlyBiggest);
   Vector<RefCountedPtr<EBIndexSpace> > findConnectedComponentsNew(int        & a_numComponents,
