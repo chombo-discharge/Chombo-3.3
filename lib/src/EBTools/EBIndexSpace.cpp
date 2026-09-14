@@ -986,6 +986,7 @@ void EBIndexSpace::fillEBISLayout(EBISLayout&              a_ebisLayout,
         wanted |= box;
       }
 
+
     this->extendLevel(whichlev, wanted);
 
     // EBISLayout promises that every level below the finest can be refined, and it redeems that

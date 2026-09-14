@@ -650,6 +650,7 @@ void EBISLevel::defineSurfaces()
   EBISLayout ebisl;
   this->fillEBISLayout(ebisl, m_grids, 0);
 
+
   BaseIVFactory<Real> factory(ebisl, sets);
 
   m_surface.define(m_grids, ncomp, IntVect::Zero, factory);
@@ -796,26 +797,64 @@ void EBISLevel::extendTo(const Vector<Box>& a_newBoxes, EBISLevel& a_coarser)
 
   const Interval one(0, 0);
 
-  // EBData is laid out against its graph and keeps a reference to it, so the two have to be
-  // rebuilt together: defining the data against a temporary graph and then replacing this
-  // level's graph underneath it leaves the data describing a graph the level no longer holds.
-  // That is the "oldgraph/newgraph" hazard this file warns about above.
-  LevelData<EBGraph> oldGraph;
-  oldGraph.define(m_graph, graphfact);
+  // temporary: what the level held before the merge, as plain numbers, so the comparison after
+  // does not go through any of the machinery under test
+  std::vector<Box>  probeBoxes;
+  std::vector<Real> probeKappa;
+  std::vector<int>  probeCount;
 
-  LevelData<EBData> oldData;
-  oldData.define(m_data, datafact);
+  {
+    DataIterator pdit2 = m_grids.dataIterator();
 
+    for (pdit2.begin(); pdit2.ok(); ++pdit2)
+      {
+        const Box& box = m_grids[pdit2()];
+        const IntVectSet ivs = m_graph[pdit2()].getIrregCells(box);
+
+        probeBoxes.push_back(box);
+        probeCount.push_back(0);
+
+        for (IVSIterator it(ivs); it.ok(); ++it)
+          {
+            probeKappa.push_back(m_data[pdit2()].volFrac(VolIndex(it(), 0)));
+            probeCount.back()++;
+          }
+      }
+  }
+
+
+  // EBData is laid out against its graph and is only usable once it has been defined against
+  // one.  LevelData's copy definer does not do that -- it makes its fabs with EBDataFactory,
+  // which leaves them undefined, and then copies into them -- so a LevelData<EBData> built that
+  // way holds nothing and reading it is undefined.  Everything below therefore defines each
+  // destination against its graph first and only then copies into it.
+  LevelData<EBGraph> allGraph(allGrids, 1, IntVect::Unit, graphfact);
+
+  m_graph .copyTo(one, allGraph, one);
+  newGraph.copyTo(one, allGraph, one);
+
+  LevelData<EBData> allData(allGrids, 1, IntVect::Zero, datafact);
+
+  DataIterator adit = allGrids.dataIterator();
+
+  for (adit.begin(); adit.ok(); ++adit)
+    {
+      allData[adit()].defineVoFData (allGraph[adit()], allGrids[adit()]);
+      allData[adit()].defineFaceData(allGraph[adit()], allGrids[adit()]);
+    }
+
+  m_data .copyTo(one, allData, one);
+  newData.copyTo(one, allData, one);
+
+  // Hand them over.  The level's data has to be defined against the level's own graph, not
+  // against the one it was assembled beside, since the data keeps a reference to its graph.
   m_grids = allGrids;
 
   m_graph.define(m_grids, 1, IntVect::Unit, graphfact);
 
-  oldGraph.copyTo(one, m_graph, one);
-  newGraph.copyTo(one, m_graph, one);
+  allGraph.copyTo(one, m_graph, one);
 
   m_data.define(m_grids, 1, IntVect::Zero, datafact);
-
-  DataIterator adit = m_grids.dataIterator();
 
   for (adit.begin(); adit.ok(); ++adit)
     {
@@ -823,9 +862,7 @@ void EBISLevel::extendTo(const Vector<Box>& a_newBoxes, EBISLevel& a_coarser)
       m_data[adit()].defineFaceData(m_graph[adit()], m_grids[adit()]);
     }
 
-  oldData.copyTo(one, m_data, one);
-  newData.copyTo(one, m_data, one);
-
+  allData.copyTo(one, m_data, one);
 
   // what was kept for the old cells no longer covers the level, and the cache is laid out against
   // grids that have changed
