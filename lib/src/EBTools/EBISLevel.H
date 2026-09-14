@@ -26,6 +26,7 @@
 #include "VolIndex.H"
 #include "FaceIndex.H"
 #include "EBGraph.H"
+#include "BaseIVFAB.H"
 #include "EBData.H"
 #include "EBISBox.H"
 #include "EBISLayout.H"
@@ -241,6 +242,12 @@ public:
   ///
   void fixRegularNextToMultiValued();
 
+  /// Fetch what the geometry service kept for this level's cut cells, once.
+  void defineSurfaces();
+
+  /// Number of values kept per cut cell, or zero if the geometry service keeps none.
+  int numSurfaceComponents() const;
+
   void clearMultiBoundaries();
   void setBoundaryPhase(int phase);
 
@@ -283,6 +290,19 @@ private:
 
   ///
   LevelData<EBData>  m_data;
+
+  /// What each cut cell was made from, kept so that a finer level can be cut from this one.
+  /**
+     Empty unless the geometry service keeps anything, which only the polyhedral generator does.
+     Built on first need rather than with the level, since a run that never asks for a level the
+     index space does not carry never needs it.  Carries no ghost cells, for the same reason
+     m_graph and m_data carry none: what reaches beyond a box is fetched with a copyTo at the
+     point of use.
+  */
+  LevelData<BaseIVFAB<Real> > m_surface;
+
+  /// Whether defineSurfaces has already run, whether or not it found anything to keep.
+  bool m_hasSurface;
 
   Real m_tolerance; // used in Multifluid face matching algorithm.
 

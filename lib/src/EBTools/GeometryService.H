@@ -26,6 +26,7 @@
 #include "VolIndex.H"
 #include "FaceIndex.H"
 #include "IrregNode.H"
+#include "BaseIVFAB.H"
 #include "DisjointBoxLayout.H"
 #include "NamespaceHeader.H"
 
@@ -175,6 +176,66 @@ public:
      3) discard the DisjointBoxLayout EBIndexSpace would like and insert your own implementation of layout
         EBIndexSpace will faithfully use a_grids returned from this function, including it's load balance. 
   */
+  /** How many numbers a geometry service keeps per cut cell so that the cell can be refined later.
+
+      Zero means the service cannot refine a cell it has already made, which is the default and
+      what every existing service does.  A service that answers with a positive count is promising
+      that getSurfaces will hand those numbers back and that fillRefinedGraph will accept them.
+  */
+  virtual int numSurfaceComponents() const;
+
+  /** Hand back what was kept for each cut cell of a box, so that the index space can carry it.
+
+      The values are numSurfaceComponents() per cell, in the order of a_cells.  A service that
+      keeps nothing returns nothing, which is the default.
+      \param a_cells   Cut cells of the box, in the order their values appear.
+      \param a_values  numSurfaceComponents() values per entry of a_cells.
+      \param a_region  Box wanted.
+      \param a_dx      Grid spacing of the level the box belongs to.
+      \param a_di      Index of the box in the layout the service was given.
+  */
+  virtual void getSurfaces(Vector<IntVect>& a_cells,
+                           Vector<Real>&    a_values,
+                           const Box&       a_region,
+                           const Real&      a_dx,
+                           const DataIndex& a_di) const;
+
+  /** Spacing of the coarser level a region has to be cut from, or a negative number if the
+      service cannot cut it.
+
+      Which level a region is cut from is a property of the geometry and not of the rank asking,
+      since two cells cut from different ancestors need not agree on the face between them.
+      \param a_ghostRegion Region wanted, including its ghost cells, on its own level.
+      \param a_dx          Grid spacing of that region.
+  */
+  virtual Real refinedFillParentDx(const Box& a_ghostRegion, const Real& a_dx) const;
+
+  /** Fill the graph and the nodes of a box on a level that was never made, by cutting the cells
+      of a coarser level that was.
+
+      The parent cells are handed in rather than looked up, because they live on the index space
+      rather than on the service and because which rank holds them is the index space's business.
+      \param a_regIrregCovered Regular/Covered/Irregular cells.
+      \param a_nodes           Nodes.
+      \param a_validRegion     Box wanted.
+      \param a_ghostRegion     Box wanted, including its ghost cells.
+      \param a_domain          Domain of the level being filled.
+      \param a_probLo          Lower-left corner of the computational domain.
+      \param a_dx              Grid spacing of the level being filled.
+      \param a_parents         Values kept for the cut cells of the coarser level.
+      \param a_parentDx        Grid spacing of that coarser level.
+      \return False if the box could not be cut, in which case nothing is written.
+  */
+  virtual bool fillRefinedGraph(BaseFab<int>&           a_regIrregCovered,
+                                Vector<IrregNode>&      a_nodes,
+                                const Box&              a_validRegion,
+                                const Box&              a_ghostRegion,
+                                const ProblemDomain&    a_domain,
+                                const RealVect&         a_probLo,
+                                const Real&             a_dx,
+                                const BaseIVFAB<Real>&  a_parents,
+                                const Real&             a_parentDx) const;
+
   virtual void makeGrids( const ProblemDomain&      a_domain,
                           DisjointBoxLayout&        a_grids,
                           const int&                a_maxGridSize,

@@ -23,6 +23,7 @@
 #include "EBIndexSpace.H"
 #include "EBGraphFactory.H"
 #include "EBDataFactory.H"
+#include "BaseIVFactory.H"
 #include "EBISLayout.H"
 #include "VoFIterator.H"
 #include "IrregNode.H"
@@ -304,6 +305,7 @@ EBISLevel::EBISLevel(HDF5Handle& a_handle)
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
 
   HDF5HeaderData header;
@@ -502,6 +504,7 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
   m_domain = a_domain;
   m_dx = a_dx;
@@ -592,6 +595,85 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
 //now fix the multivalued next to regular thing for the graph and the data
 //the oldgraph/newgraph thing is necessary because the graphs are
 //reference counted and they have to be kept consistent with the data
+int EBISLevel::numSurfaceComponents() const
+{
+  return (m_geoserver == NULL) ? 0 : m_geoserver->numSurfaceComponents();
+}
+
+void EBISLevel::defineSurfaces()
+{
+  CH_TIME("EBISLevel::defineSurfaces");
+
+  if (m_hasSurface)
+    {
+      return;
+    }
+
+  m_hasSurface = true;
+
+  const int ncomp = this->numSurfaceComponents();
+
+  if (ncomp <= 0)
+    {
+      // The geometry service keeps nothing, which is every service but the polyhedral one, and
+      // which is what makes a level built by any of them unable to be refined.
+      return;
+    }
+
+  LayoutData<IntVectSet>        sets(m_grids);
+  LayoutData<Vector<IntVect> >  cells(m_grids);
+  LayoutData<Vector<Real> >     values(m_grids);
+
+  DataIterator dit = m_grids.dataIterator();
+
+  for (dit.begin(); dit.ok(); ++dit)
+    {
+      const DataIndex din = dit();
+
+      m_geoserver->getSurfaces(cells[din], values[din], m_grids[din], m_dx, din);
+
+      IntVectSet ivs;
+
+      for (int n = 0; n < cells[din].size(); n++)
+        {
+          ivs |= cells[din][n];
+        }
+
+      sets[din] = ivs;
+    }
+
+  // BaseIVFactory reads the graph through an EBISLayout, and this level's own grids with no
+  // ghost cells is the layout whose graph is exactly m_graph.  It costs a copy of the level
+  // while this runs; the alternative is a factory that takes a LevelData<EBGraph> directly,
+  // which is worth adding if this ever shows up in a profile.
+  EBISLayout ebisl;
+  this->fillEBISLayout(ebisl, m_grids, 0);
+
+  BaseIVFactory<Real> factory(ebisl, sets);
+
+  m_surface.define(m_grids, ncomp, IntVect::Zero, factory);
+
+  for (dit.begin(); dit.ok(); ++dit)
+    {
+      const DataIndex din = dit();
+
+      BaseIVFAB<Real>&       fab      = m_surface[din];
+      const Vector<IntVect>& theCells = cells[din];
+      const Vector<Real>&    theVals  = values[din];
+
+      for (int n = 0; n < theCells.size(); n++)
+        {
+          // the generator mandates single-valued cut cells, so each one is a single volume
+          const VolIndex vof(theCells[n], 0);
+
+          for (int comp = 0; comp < ncomp; comp++)
+            {
+              fab(vof, comp) = theVals[n*ncomp + comp];
+            }
+        }
+    }
+}
+
 void EBISLevel::fixRegularNextToMultiValued()
 {
   CH_TIME("EBISLevel::fixRegularNextToMultiValued");
@@ -827,6 +909,7 @@ EBISLevel::EBISLevel()
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
   m_level = 0;
 
@@ -1641,6 +1724,7 @@ EBISLevel::EBISLevel(EBISLevel             & a_fineEBIS,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
   m_domain = coarsen(a_fineEBIS.m_domain,2);
   m_dx = 2.*a_fineEBIS.m_dx;
@@ -2336,6 +2420,7 @@ EBISLevel::EBISLevel(HDF5Handle& a_handle,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
   char levelcstr[256];
   sprintf(levelcstr, "%d", a_levelNumber);
   string levelstring(levelcstr);
