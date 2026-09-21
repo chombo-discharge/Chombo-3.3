@@ -16,6 +16,7 @@
 #include "parstream.H"
 #include "SPMD.H"
 #include "DebugOut.H"
+#include "BoxIterator.H"
 #include "SPMD.H"
 #include "NamespaceHeader.H"
 
@@ -67,6 +68,8 @@ void IVSFAB<T>::define(const IntVectSet& a_ivsin,
   m_loVect = IntVect::Zero;
   m_hiVect = IntVect::Unit;
   m_ivmap.define( a_ivsin.minBox(), a_nvarin );
+  // -1 marks a cell of the bounding box that is not in the set, so that the map answers membership
+  m_ivmap.setVal(-1);
   m_ivs = a_ivsin;
 
   CH_assert(a_nvarin > 0);
@@ -133,29 +136,25 @@ IVSFAB<T>::copy(const Box& a_fromBox,
   CH_assert(a_srcInterval.begin() >= 0);
   CH_assert(a_dstInterval.end()   < m_nComp);
   CH_assert(a_srcInterval.end()   < a_src.m_nComp);
-
-  if ((!m_ivs.isEmpty()) && (!a_src.m_ivs.isEmpty()))
+  if ((m_nIvs > 0) && (a_src.m_nIvs > 0))
     {
-      // my points in toBox
-      IntVectSet ivsIntersect = m_ivs & a_toBox;
-      // his points in fromBox
-      IntVectSet set2 = a_src. m_ivs & a_fromBox;
-      // his points mapped to my Box
-      set2.shift(shift);
-      // overlap
-      ivsIntersect &= set2;
-      
-      IVSFAB<T>& thisFAB = *this;
+      // The cells of a_toBox that are in both sets, read off the dense maps rather than by intersecting the
+      // sets, which allocates; this runs once per motion item of a copy.
+      Box region = a_toBox & m_ivmap.box();
+      Box srcRegion = a_src.m_ivmap.box();
+      srcRegion.shift(shift);
+      region &= srcRegion;
       int compSize = a_srcInterval.size();
-      for (IVSIterator ivit(ivsIntersect); ivit.ok(); ++ivit)
+      for (BoxIterator bit(region); bit.ok(); ++bit)
         {
-          const IntVect& iv = ivit();
-          IntVect iv2 = iv - shift;
+          const IntVect& iv = bit();
+          const IntVect ivSrc = iv - shift;
+          if (m_ivmap(iv, 0) < 0 || a_src.m_ivmap(ivSrc, 0) < 0) continue;
           for (int icomp = 0; icomp < compSize; icomp++)
             {
               int isrccomp = a_srcInterval.begin() + icomp;
               int idstcomp = a_dstInterval.begin() + icomp;
-              thisFAB(iv, idstcomp) = a_src(iv2, isrccomp);
+              (*this)(iv, idstcomp) = a_src(ivSrc, isrccomp);
             }
         }
     }
@@ -345,22 +344,21 @@ template <class T> inline
 int IVSFAB<T>::size(const Box& a_region,
                        const Interval& a_comps) const
 {
-  IntVectSet subset = m_ivs & a_region;
-  int numberThings = subset.numPts();
-
-// can't do this for objects like vectors ...
-//  T dummy;
-//  int sizeofThing = dummy.linearSize();
-//  int retval = numberThings*sizeofThing + sizeof(int);
- 
+  // the cells of the region that are in the set, read off the dense map
+  const Box region = a_region & m_ivmap.box();
+  int numberThings = 0;
   int retval=sizeof(int); // count
-  for( int icomp=a_comps.begin(); icomp<=a_comps.end(); icomp++ ) {
-    for( IVSIterator ivsit(subset); ivsit.ok(); ++ivsit ) {
-      const IntVect& iv = ivsit();
-      int iloc = getIndex(iv,icomp);
-      retval += m_dataPtr[iloc].linearSize(); // size of each object
+  for (BoxIterator bit(region); bit.ok(); ++bit)
+    {
+      const IntVect& iv = bit();
+      if (m_ivmap(iv, 0) < 0) continue;
+      numberThings++;
+      for( int icomp=a_comps.begin(); icomp<=a_comps.end(); icomp++ )
+        {
+          int iloc = getIndex(iv,icomp);
+          retval += m_dataPtr[iloc].linearSize(); // size of each object
+        }
     }
-  }
   retval += SpaceDim*sizeof(int)*numberThings; // for intvects
   retval += 2*SpaceDim*sizeof(Real); // box done as reals for some reason
   return retval;
@@ -374,31 +372,30 @@ void IVSFAB<T>::linearOut(void* a_buf,
   // Note:  it WAS assumed that there is one component.
   //        and all "T" have equal size.
   // message includes count
-  IntVectSet subset = m_ivs & a_region;
-
-
+  const Box region = a_region & m_ivmap.box();
   Real* rptr = (Real*)a_buf;
   for ( int idir=0; idir<SpaceDim; idir++ ) {
     *rptr++ = a_region.smallEnd(idir);
     *rptr++ = a_region.bigEnd(idir);
   }
-
   int* iptr = (int*)rptr;
-
-  int count = subset.numPts();
+  int count = 0;
+  for (BoxIterator bit(region); bit.ok(); ++bit)
+    {
+      if (m_ivmap(bit(), 0) >= 0) count++;
+    }
   *iptr++ = count;
 // cannot count on T having constant size
 //  T dummy;
 //  int Tsz = dummy.linearSize();
   char* cptr = (char*)iptr;
-  for ( IVSIterator ivsit(subset); ivsit.ok(); ++ivsit )
+  for (BoxIterator bit(region); bit.ok(); ++bit)
   {
-    const IntVect& iv = ivsit();
-
+    const IntVect& iv = bit();
+    if (m_ivmap(iv, 0) < 0) continue;
     iptr = (int*)cptr;
     for ( int idir=0; idir<SpaceDim; idir++ ) *iptr++ = iv[idir];
     cptr = (char*)iptr;
-    
     for( int c=a_comps.begin(); c<=a_comps.end(); c++ ) {
       int iloc = getIndex(iv, c); // assume 1 component ...
       m_dataPtr[iloc].linearOut( (void*)cptr );
@@ -413,34 +410,22 @@ if( cptr - ((char*)a_buf) != size(a_region,a_comps) ) {
 }
   CH_assert( cptr - ((char*)a_buf) == size(a_region,a_comps) );
 }
-
+////////////////////
 template <class T> inline
 void IVSFAB<T>::linearIn(void* a_buf, const Box& a_region, const Interval& a_comps)
 {
-  // Note:  it is assumed that there is one component.
-  //        and all "T" have same size
-  // message includes count
-  IntVectSet subset = m_ivs & a_region;
-
-  // input the box
+  // the buffer names every cell it carries, so nothing about the set is needed here
   IntVect ibl, ibh;
   Real* rptr = (Real*)a_buf;
   for ( int idir=0; idir<SpaceDim; idir++ ) {
     ibl[idir] = *rptr++;
     ibh[idir] = *rptr++;
   }
-
-  // compute the offset (for periodic case)
   IntVect shift = a_region.smallEnd() - ibl;
   IntVect shift2 = a_region.bigEnd() - ibh;
   CH_assert(shift==shift2);
-
   int* iptr = (int*)rptr;
-
   int count_received = *iptr++;
-// cannot count on T having constant size
-//  T dummy;
-//  int Tsz = dummy.linearSize();
   char* cptr = (char*)iptr;
   for ( int i=0; i<count_received; i++ )
   {
@@ -448,19 +433,15 @@ void IVSFAB<T>::linearIn(void* a_buf, const Box& a_region, const Interval& a_com
     iptr = (int*)cptr;
     for ( int idir=0; idir<SpaceDim; idir++ ) iv2[idir] = *iptr++;
     cptr = (char*)iptr;
-
-    // perform shift
     iv2 += shift;
-
     for( int c=a_comps.begin(); c<=a_comps.end(); c++ ) {
       int iloc = getIndex(iv2, c);
       m_dataPtr[iloc].linearIn( (void*)cptr );
-//    cptr += Tsz;
       cptr += m_dataPtr[iloc].linearSize();
     }
   }
 }
-
+////////////////////
 template <class T> inline
 int
 IVSFAB<T>::getIndex(const IntVect& a_iv, const int& a_comp) const
