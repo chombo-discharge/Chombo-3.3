@@ -122,6 +122,7 @@ DisjointBoxLayout::close()
       CH_assert(isDisjoint());
       *m_closed = true;
       buildDataIndex();
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       computeNeighbors();
@@ -135,6 +136,7 @@ DisjointBoxLayout::closeNO()
       sort();
       CH_assert(isDisjoint());
       *m_closed = true;
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       //computeNeighbors(); don't build neighbors
@@ -150,6 +152,7 @@ DisjointBoxLayout::closeNoSort()
       CH_assert(isDisjoint());
       *m_sorted = false;
       *m_closed = true;
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       //computeNeighbors(); don't build neighbors
@@ -165,6 +168,7 @@ DisjointBoxLayout::closeN(RefCountedPtr<Vector<Vector<std::pair<int, LayoutIndex
       sort();
       CH_assert(isDisjoint());
       *m_closed = true;
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       m_neighbors = neighbors;

@@ -18,6 +18,7 @@
 #include "SPMD.H"
 #include "parstream.H"
 #include "CH_Timer.H"
+#include "MayDay.H"
 #include "LayoutData.H"
 #include "NamespaceHeader.H"
 
@@ -294,6 +295,12 @@ void BoxLayout::buildSpatialIndex()
 void BoxLayout::intersecting(const Box& a_box, Vector<int>& a_indices) const
 {
   CH_assert(*m_closed);
+  // every path that closes a layout builds the index; a layout whose index is missing is a bug in one of them
+  CH_assert(m_treeOrder->size() == m_boxes->size());
+  if (m_treeOrder->size() != m_boxes->size())
+    {
+      MayDay::Error("BoxLayout::intersecting called on a closed layout without a spatial index");
+    }
 
   a_indices.resize(0);
 
