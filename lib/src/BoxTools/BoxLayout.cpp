@@ -10,6 +10,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <vector>
 #include "BoxLayout.H"
 #include "DataIterator.H"
 #include "TimedDataIterator.H"
@@ -17,6 +18,7 @@
 #include "SPMD.H"
 #include "parstream.H"
 #include "CH_Timer.H"
+#include "MayDay.H"
 #include "LayoutData.H"
 #include "NamespaceHeader.H"
 
@@ -32,6 +34,7 @@ transform(BaseTransform& a_transform)
       Box fullBox = (*m_boxes)[ivec].box;
       (*m_boxes)[ivec].box = a_transform(fullBox);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 //need at least one non-inlined function, otherwise
@@ -68,7 +71,9 @@ BoxLayout::BoxLayout()
    m_closed(new bool(false)),
    m_sorted(new bool(false)),
    m_dataIterator(RefCountedPtr<DataIterator>()),
-   m_indicies(new Vector<LayoutIndex>())
+   m_indicies(new Vector<LayoutIndex>()),
+   m_treeOrder(new Vector<int>()),
+   m_treeBounds(new Vector<Box>())
 {
 }
 
@@ -83,6 +88,8 @@ BoxLayout& BoxLayout::operator=(const BoxLayout& a_rhs)
 #ifdef CH_MPI
   m_dataIndex = a_rhs.m_dataIndex;
 #endif
+  m_treeOrder = a_rhs.m_treeOrder;
+  m_treeBounds = a_rhs.m_treeBounds;
   return *this;
 }
 
@@ -103,6 +110,7 @@ void BoxLayout::closeNoSort()
       *m_sorted = false;
       *m_closed = true;
       buildDataIndex();
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(new DataIterator(*this, m_layout));
     }
 }
@@ -114,6 +122,7 @@ void BoxLayout::close()
       sort();
       *m_closed = true;
       buildDataIndex();
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(new DataIterator(*this, m_layout));
     }
 }
@@ -148,6 +157,195 @@ void BoxLayout::buildDataIndex()
       m_dataIndex->operator[](i) = *b;
     }
 #endif
+}
+
+namespace
+{
+  // The internal nodes of the tree over a range of leaves [lo, hi) are numbered in preorder: the node over
+  // the range is followed by the nodes of its left half [lo, mid) and then those of its right half [mid, hi),
+  // and a range of n leaves has n - 1 internal nodes. So the left child of node id is id + 1 and the right
+  // child is id + (mid - lo). A range of one leaf is the box itself and has no node.
+  Box buildTreeNode(const Vector<Entry>& a_entries,
+                    const Vector<int>&   a_order,
+                    Vector<Box>&         a_bounds,
+                    int                  a_lo,
+                    int                  a_hi,
+                    int                  a_id)
+  {
+    const int mid = (a_lo + a_hi) / 2;
+
+    Box left;
+    Box right;
+
+    if (mid - a_lo >= 2)
+      {
+        left = buildTreeNode(a_entries, a_order, a_bounds, a_lo, mid, a_id + 1);
+      }
+    else
+      {
+        left = a_entries[a_order[a_lo]].box;
+      }
+
+    if (a_hi - mid >= 2)
+      {
+        right = buildTreeNode(a_entries, a_order, a_bounds, mid, a_hi, a_id + (mid - a_lo));
+      }
+    else
+      {
+        right = a_entries[a_order[mid]].box;
+      }
+
+    Box bound(left);
+    bound.minBox(right);
+
+    a_bounds[a_id] = bound;
+
+    return bound;
+  }
+
+  // Interleaves the low 21 bits of each coordinate, x lowest.
+  unsigned long long mortonKey(const IntVect& a_iv)
+  {
+    unsigned long long key = 0;
+    for (int bit = 0; bit < 21; bit++)
+      {
+        for (int dir = 0; dir < CH_SPACEDIM; dir++)
+          {
+            const unsigned long long b = (static_cast<unsigned long long>(a_iv[dir]) >> bit) & 1ULL;
+            key |= b << (CH_SPACEDIM * bit + dir);
+          }
+      }
+    return key;
+  }
+
+  struct KeyedIndex
+  {
+    unsigned long long key;
+    int index;
+    bool operator<(const KeyedIndex& a_rhs) const
+    {
+      if (key != a_rhs.key) return key < a_rhs.key;
+      return index < a_rhs.index;
+    }
+  };
+}
+
+void BoxLayout::buildSpatialIndex()
+{
+  CH_TIME("BoxLayout::buildSpatialIndex");
+
+  const Vector<Entry>& entries = *m_boxes;
+  const int n = entries.size();
+
+  Vector<int>& order = *m_treeOrder;
+  Vector<Box>& bounds = *m_treeBounds;
+
+  order.resize(n);
+  bounds.resize((n > 1) ? n - 1 : 0);
+
+  if (n == 0) return;
+
+  // Twice the centre of every box, shifted so that the smallest coordinate is zero, and scaled down until
+  // every coordinate fits the 21 bits a Morton key has for it.
+  IntVect low = 2 * entries[0].box.smallEnd() + entries[0].box.size();
+  IntVect high = low;
+  for (int i = 1; i < n; i++)
+    {
+      const IntVect centre = 2 * entries[i].box.smallEnd() + entries[i].box.size();
+      low.min(centre);
+      high.max(centre);
+    }
+
+  int shift = 0;
+  for (int dir = 0; dir < CH_SPACEDIM; dir++)
+    {
+      unsigned long long range = static_cast<unsigned long long>(high[dir] - low[dir]);
+      while ((range >> shift) >= (1ULL << 21))
+        {
+          shift++;
+        }
+    }
+
+  Vector<KeyedIndex> keyed(n);
+  for (int i = 0; i < n; i++)
+    {
+      IntVect centre = 2 * entries[i].box.smallEnd() + entries[i].box.size();
+      centre -= low;
+      for (int dir = 0; dir < CH_SPACEDIM; dir++)
+        {
+          centre[dir] >>= shift;
+        }
+      keyed[i].key = mortonKey(centre);
+      keyed[i].index = i;
+    }
+
+  std::sort(keyed.stdVector().begin(), keyed.stdVector().end());
+
+  for (int i = 0; i < n; i++)
+    {
+      order[i] = keyed[i].index;
+    }
+
+  if (n > 1)
+    {
+      buildTreeNode(entries, order, bounds, 0, n, 0);
+    }
+}
+
+void BoxLayout::intersecting(const Box& a_box, Vector<int>& a_indices) const
+{
+  CH_assert(*m_closed);
+  // every path that closes a layout builds the index; a layout whose index is missing is a bug in one of them
+  CH_assert(m_treeOrder->size() == m_boxes->size());
+  if (m_treeOrder->size() != m_boxes->size())
+    {
+      MayDay::Error("BoxLayout::intersecting called on a closed layout without a spatial index");
+    }
+
+  a_indices.resize(0);
+
+  const Vector<Entry>& entries = *m_boxes;
+  const Vector<int>& order = *m_treeOrder;
+  const Vector<Box>& bounds = *m_treeBounds;
+  const int n = entries.size();
+
+  if (n == 0 || a_box.isEmpty()) return;
+
+  // A stack of leaf ranges with their node numbers, as in buildTreeNode.
+  struct Range
+  {
+    int lo;
+    int hi;
+    int id;
+  };
+
+  std::vector<Range> stack;
+  stack.reserve(64);
+  stack.push_back(Range{0, n, 0});
+
+  while (!stack.empty())
+    {
+      const Range range = stack.back();
+      stack.pop_back();
+
+      if (range.hi - range.lo == 1)
+        {
+          if (a_box.intersectsNotEmpty(entries[order[range.lo]].box))
+            {
+              a_indices.push_back(order[range.lo]);
+            }
+          continue;
+        }
+
+      if (!a_box.intersectsNotEmpty(bounds[range.id])) continue;
+
+      const int mid = (range.lo + range.hi) / 2;
+      stack.push_back(Range{mid, range.hi, range.id + (mid - range.lo)});
+      stack.push_back(Range{range.lo, mid, range.id + 1});
+    }
+
+  // in the order of the layout, whatever the tree's
+  std::sort(a_indices.stdVector().begin(), a_indices.stdVector().end());
 }
 
 bool BoxLayout::coarsenable(int refRatio) const
@@ -192,7 +390,9 @@ BoxLayout::BoxLayout(const Vector<Box>& a_boxes, const Vector<int>& assignments)
    m_layout(new int),
    m_closed(new bool(false)),
    m_sorted(new bool(false)),
-   m_indicies(new Vector<LayoutIndex>())
+   m_indicies(new Vector<LayoutIndex>()),
+   m_treeOrder(new Vector<int>()),
+   m_treeBounds(new Vector<Box>())
 {
   define(a_boxes, assignments);
 }
@@ -202,7 +402,9 @@ BoxLayout::BoxLayout(const LayoutData<Box>& a_newLayout)
    m_layout(new int),
    m_closed(new bool(false)),
    m_sorted(new bool(false)),
-   m_indicies(new Vector<LayoutIndex>())
+   m_indicies(new Vector<LayoutIndex>()),
+   m_treeOrder(new Vector<int>()),
+   m_treeBounds(new Vector<Box>())
 {
   define(a_newLayout);
 }
@@ -340,6 +542,8 @@ BoxLayout::deepCopy(const BoxLayout& a_source)
 #ifdef CH_MPI
   m_dataIndex = a_source.m_dataIndex;
 #endif
+  m_treeOrder = RefCountedPtr<Vector<int> >(new Vector<int>());
+  m_treeBounds = RefCountedPtr<Vector<Box> >(new Vector<Box>());
   *m_closed = false;
 }
 
@@ -432,6 +636,7 @@ operator&= (const Box& a_box)
     {
       (*m_boxes)[ivec].box &= a_box;
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 void
@@ -442,6 +647,7 @@ operator&= (const ProblemDomain& a_domain)
     {
       (*m_boxes)[ivec].box &= a_domain;
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 void
@@ -460,6 +666,7 @@ adjCellSide(int a_idir, int a_length, Side::LoHiSide a_side)
           (*m_boxes)[ivec].box = adjCellHi( fullBox, a_idir, a_length);
         }
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 void
@@ -477,6 +684,7 @@ growSide(int a_idir, int a_length, Side::LoHiSide a_side)
           (*m_boxes)[ivec].box.growHi(a_idir, a_length);
         }
     }
+  if (*m_closed) buildSpatialIndex();
 }
 //////////////
 void
@@ -487,6 +695,7 @@ surroundingNodes()
     {
       (*m_boxes)[ivec].box.surroundingNodes();
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 //////////////
@@ -500,6 +709,7 @@ convertNewToOld(const IntVect& a_permutation,
     {
       (*m_boxes)[ivec].box.convertNewToOld(a_permutation, a_sign, a_translation);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 //////////////
 void
@@ -512,6 +722,7 @@ convertOldToNew(const IntVect& a_permutation,
     {
       (*m_boxes)[ivec].box.convertOldToNew(a_permutation, a_sign, a_translation);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 ///////////
 void
@@ -522,6 +733,7 @@ enclosedCells()
     {
       (*m_boxes)[ivec].box.enclosedCells();
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 ///////////
@@ -533,6 +745,7 @@ grow(int a_growth)
     {
       (*m_boxes)[ivec].box.grow(a_growth);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 ///////////
 void
@@ -543,6 +756,7 @@ grow(int a_idir, int a_growth)
     {
       (*m_boxes)[ivec].box.grow(a_idir, a_growth);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 ///////////
 void
@@ -553,6 +767,7 @@ grow(IntVect a_growth)
     {
       (*m_boxes)[ivec].box.grow(a_growth);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 ///////////
@@ -564,6 +779,7 @@ coarsen(int a_ref)
     {
       (*m_boxes)[ivec].box.coarsen(a_ref);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 ///////////
 void
@@ -574,6 +790,7 @@ refine(int a_ref)
     {
       (*m_boxes)[ivec].box.refine(a_ref);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 ///////////
@@ -585,6 +802,7 @@ shift(const IntVect& a_iv)
     {
       (*m_boxes)[ivec].box.shift(a_iv);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 ///////////
@@ -596,6 +814,7 @@ shiftHalf(const IntVect& a_iv)
     {
       (*m_boxes)[ivec].box.shiftHalf(a_iv);
     }
+  if (*m_closed) buildSpatialIndex();
 }
 
 

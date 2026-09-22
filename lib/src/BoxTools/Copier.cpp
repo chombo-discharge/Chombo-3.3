@@ -634,17 +634,12 @@ void Copier::define(const BoxLayout& a_level,
     }
   }
 
-  // make a vector of boxes (or LayoutIndexes to boxes) from "level"/src layout
-  // that are known to reside on this processor.
+  // make a vector of boxes (or LayoutIndexes to boxes) from "level"/src layout,
+  // indexed as the layout indexes them so that the spatial index's answers map onto it.
   vector<DataIndex> vectorLevelDI;
-  vector<DataIndex> vectorLevelOnProcDI;
   for (LayoutIterator from(a_level.layoutIterator()); from.ok(); ++from)
   {
     vectorLevelDI.push_back(DataIndex(from()));
-    if (myprocID == level.procID(from()))
-    {
-      vectorLevelOnProcDI.push_back(DataIndex(from()));
-    }
   }
 #else
   // in serial, it's not very interesting as it's all of them.
@@ -660,7 +655,9 @@ void Copier::define(const BoxLayout& a_level,
   }
 #endif
 
-  bool isSorted = (a_level.isSorted() && a_dest.isSorted());
+  // The source boxes a ghosted destination box meets come from the source layout's spatial index, in
+  // layout order, which is the order the pass over every source box used to find them in.
+  Vector<int> hits;
 
   // loop over all dest/to DI's on my processor
   for (vector<DataIndex>::iterator vdi = vectorDestOnProcDI.begin();
@@ -674,53 +671,37 @@ void Copier::define(const BoxLayout& a_level,
 
     ghost.grow(a_ghost);
 
-    //bool isSorted = (a_level.isSorted() && a_dest.isSorted());
-    // then for each level/from DI, see if they intersect
-    for (vector<DataIndex>::iterator vli = vectorLevelDI.begin();
-        vli != vectorLevelDI.end(); ++vli)
+    a_level.intersecting(ghost, hits);
+
+    for (int ihit = 0; ihit < hits.size(); ihit++)
     {
-      const DataIndex fromdi(*vli);
+      const DataIndex fromdi(vectorLevelDI[hits[ihit]]);
       const unsigned int fromProcID = level.procID(fromdi);
       const Box& fromBox = level[fromdi];
-      if ((fromBox.bigEnd(0) < ghost.smallEnd(0)) && isSorted )
+
+      Box srcBox(ghost);
+      srcBox &= fromBox;
+
+      Box destBox = srcBox + a_shift;
+
+      MotionItem* item = new (s_motionItemPool.getPtr())
+        MotionItem(fromdi, todi, srcBox, destBox);
+      if (item == NULL)
       {
-        //can skip rest cuz we haven't gotten to something interesting
-        continue;
+        MayDay::Error("Out of Memory in copier::define");
       }
-
-      if (ghost.intersectsNotEmpty(fromBox))
-      {
-        Box srcBox(ghost); // ??
-        srcBox &= fromBox; // ??
-
-        Box destBox = srcBox + a_shift;
-
-        MotionItem* item = new (s_motionItemPool.getPtr())
-          MotionItem(fromdi, todi, srcBox, destBox);
-        if (item == NULL)
-        {
-          MayDay::Error("Out of Memory in copier::define");
-        }
-        if (fromProcID == myprocID)
-        { // local move
-          if (a_exchange && fromdi == todi)
-            s_motionItemPool.returnPtr(item);
-          else
-            m_localMotionPlan.push_back(item);
-        }
+      if (fromProcID == myprocID)
+      { // local move
+        if (a_exchange && fromdi == todi)
+          s_motionItemPool.returnPtr(item);
         else
-        {
-          item->procID = fromProcID;
-          m_toMotionPlan.push_back(item);
-        }
+          m_localMotionPlan.push_back(item);
       }
-      if ((fromBox.smallEnd(0) > ghost.bigEnd(0)) && isSorted)
+      else
       {
-        //can break out of loop, since we know that the smallEnd
-        // of all the remaining boxes are lexigraphically beyond this ghosted box.
-        break;
+        item->procID = fromProcID;
+        m_toMotionPlan.push_back(item);
       }
-
     }
   }
 
@@ -741,54 +722,37 @@ void Copier::define(const BoxLayout& a_level,
 
     const unsigned int toProcID = dest.procID(todi);
 
-    // then for each level/from DI on this processor, see if they intersect
-    for (vector<DataIndex>::iterator vli = vectorLevelOnProcDI.begin();
-        vli != vectorLevelOnProcDI.end(); ++vli)
+    if (toProcID == myprocID)
     {
+      // local moves were made above; don't push back here or you will get two
+      continue;
+    }
 
-      // at this point, i know myprocID == fromProcID
+    // the source boxes it meets, of which only those on this processor are this processor's to send
+    a_level.intersecting(ghost, hits);
 
-      const DataIndex fromdi(*vli);
+    for (int ihit = 0; ihit < hits.size(); ihit++)
+    {
+      const DataIndex fromdi(vectorLevelDI[hits[ihit]]);
+
+      if (level.procID(fromdi) != myprocID) continue;
+
       const Box& fromBox = level[fromdi];
 
-      if ((fromBox.bigEnd(0) < ghost.smallEnd(0)) && isSorted)
+      Box srcBox(ghost);
+      srcBox &= fromBox;
+
+      Box destBox = srcBox + a_shift;
+
+      MotionItem* item = new (s_motionItemPool.getPtr())
+        MotionItem(fromdi, todi, srcBox, destBox);
+      if (item == NULL)
       {
-        //can skip rest cuz we haven't gotten to something interesting
-        continue;
+        MayDay::Error("Out of Memory in copier::define");
       }
 
-      if (ghost.intersectsNotEmpty(fromBox))
-      {
-        Box srcBox(ghost); // ??
-        srcBox &= fromBox; // ??
-
-        Box destBox = srcBox + a_shift;
-
-        if (toProcID == myprocID)
-        { // local move
-          // don't push back here!  or you will get two.
-          //     we already did it above...
-          //m_localMotionPlan.push_back(item);
-        }
-        else
-        {
-          MotionItem* item = new (s_motionItemPool.getPtr())
-            MotionItem(fromdi, todi, srcBox, destBox);
-          if (item == NULL)
-          {
-            MayDay::Error("Out of Memory in copier::define");
-          }
-
-          item->procID = toProcID;
-          m_fromMotionPlan.push_back(item);
-        }
-      }
-      if ((fromBox.smallEnd(0) > ghost.bigEnd(0)) && isSorted)
-      {
-        //can break out of loop, since we know that the smallEnd
-        // of all the remaining boxes are lexigraphically beyond this ghosted box.
-        break;
-      }
+      item->procID = toProcID;
+      m_fromMotionPlan.push_back(item);
     }
   }
 #endif

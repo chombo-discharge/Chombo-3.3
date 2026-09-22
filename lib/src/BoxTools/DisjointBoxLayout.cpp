@@ -122,6 +122,7 @@ DisjointBoxLayout::close()
       CH_assert(isDisjoint());
       *m_closed = true;
       buildDataIndex();
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       computeNeighbors();
@@ -135,6 +136,7 @@ DisjointBoxLayout::closeNO()
       sort();
       CH_assert(isDisjoint());
       *m_closed = true;
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       //computeNeighbors(); don't build neighbors
@@ -150,6 +152,7 @@ DisjointBoxLayout::closeNoSort()
       CH_assert(isDisjoint());
       *m_sorted = false;
       *m_closed = true;
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       //computeNeighbors(); don't build neighbors
@@ -165,6 +168,7 @@ DisjointBoxLayout::closeN(RefCountedPtr<Vector<Vector<std::pair<int, LayoutIndex
       sort();
       CH_assert(isDisjoint());
       *m_closed = true;
+      buildSpatialIndex();
       m_dataIterator = RefCountedPtr<DataIterator>(
                         new DataIterator(*this, m_layout));
       m_neighbors = neighbors;
@@ -174,13 +178,6 @@ DisjointBoxLayout::closeN(RefCountedPtr<Vector<Vector<std::pair<int, LayoutIndex
 void DisjointBoxLayout::computeNeighbors()
 {
   CH_TIME("DisjointBoxLayout::computeNeighbors");
-  const Vector<Entry>& boxes = *m_boxes;
-  int n = boxes.size();
-  int maxI=0;
-  for (int i=0; i<n; ++i)
-    {
-      maxI = Max(maxI, boxes[i].box.size(0));
-    }
   std::list<std::pair<int, LayoutIndex> > periodicImages;
   if (!m_physDomain.isEmpty() && m_physDomain.isPeriodic())
     {
@@ -217,11 +214,6 @@ void DisjointBoxLayout::computeNeighbors()
             } // end if periodic
         }
     }
-  //  OK, for this work, we don't use a standard LayoutIterator, since I want to
-  // be pushing the start of the window forward, which LayoutIterator is not built to do.
-  unsigned int id = 0;
-  unsigned int start = 0;
-  unsigned int end   = size();
   m_neighbors = RefCountedPtr<Vector<Vector<std::pair<int, LayoutIndex > > > >(
             new Vector<Vector<std::pair<int, LayoutIndex> > >());
   DataIterator dit = dataIterator();
@@ -229,27 +221,23 @@ void DisjointBoxLayout::computeNeighbors()
   LayoutIterator lit = layoutIterator();
   const Vector<LayoutIndex>& vecLayoutIndex = *(lit.m_indicies);
 
+  Vector<int> hits;
+
   for (DataIterator dit=dataIterator(); dit.ok(); ++dit)
     {
       Box gbox = get(dit());
       gbox.grow(1);
       Vector<std::pair<int, LayoutIndex> >& neighbors = (*m_neighbors)[dit().intCode()];
-      int low =  gbox.smallEnd()[0] - maxI;
-      int high = gbox.smallEnd()[0] + maxI + 1;
-      for (id=start; id<end; ++id)
+      // the boxes the grown box meets, from the spatial index, in layout order
+      intersecting(gbox, hits);
+      for (int ihit = 0; ihit < hits.size(); ihit++)
         {
+          const int id = hits[ihit];
           if (id != index(dit()))
-          {
-            //don't include yourself as neighbor
-            const Box& b = boxes[id].box;
-            const IntVect& s = b.smallEnd();
-            if (s[0]< low) start = id+1;
-            else if (s[0] > high) id=end;
-            if (gbox.intersectsNotEmpty(b))
-              {
-                neighbors.push_back(std::pair<int, LayoutIndex>(-1, vecLayoutIndex[id]));
-              }
-          }
+            {
+              //don't include yourself as neighbor
+              neighbors.push_back(std::pair<int, LayoutIndex>(-1, vecLayoutIndex[id]));
+            }
         }
       //now run through periodic boxes.
       if(!m_physDomain.isEmpty() && !m_physDomain.domainBox().contains(gbox))

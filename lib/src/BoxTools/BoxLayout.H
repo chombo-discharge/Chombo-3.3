@@ -639,9 +639,26 @@ public:
   {
     return m_boxes;
   }
+  ///
+  /**
+     Every box of the layout that meets a_box, as indices into the layout's box list -- the index a
+     LayoutIndex carries -- in increasing order. Requires a closed layout. Answered from a spatial index
+     over the boxes that is built when the layout is closed and rebuilt whenever its boxes change, in
+     O(log N + hits) rather than by a pass over the N boxes.
+  */
+  void intersecting(const Box& a_box, Vector<int>& a_indices) const;
+
 protected:
 
   void buildDataIndex();
+
+  /**
+     Build the spatial index over the boxes: a binary hierarchy over the boxes in Morton order of their
+     centres, with the bounding box of every internal node kept in preorder and the boxes themselves as
+     the leaves. Called by close and after every operation that changes the boxes of a closed layout.
+  */
+  void buildSpatialIndex();
+
   friend class LayoutIterator;
   friend class DataIterator;
 
@@ -655,6 +672,12 @@ protected:
 #ifdef CH_MPI
   RefCountedPtr<Vector<DataIndex> >    m_dataIndex;
 #endif
+
+  /// the boxes in Morton order of their centres: the leaves of the spatial index, left to right
+  RefCountedPtr<Vector<int> >          m_treeOrder;
+
+  /// the bounding box of every internal node of the spatial index, in preorder
+  RefCountedPtr<Vector<Box> >          m_treeBounds;
 
   void checkDefine(const Vector<Box>& a_boxes, const Vector<int>& procIDs);
 private:
