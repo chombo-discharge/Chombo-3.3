@@ -69,6 +69,38 @@ bool GeometryService::intersection(const Box&           a_region,
 
 }
 
+int GeometryService::numSurfaceComponents() const
+{
+  return 0;
+}
+
+void GeometryService::getSurfaces(Vector<IntVect>& a_cells,
+                                  Vector<Real>&    a_values,
+                                  const Box&       a_region,
+                                  const Real&      a_dx) const
+{
+  a_cells.resize(0);
+  a_values.resize(0);
+}
+
+Real GeometryService::refinedFillParentDx(const Box& a_ghostRegion, const Real& a_dx) const
+{
+  return -1.0;
+}
+
+bool GeometryService::fillRefinedGraph(BaseFab<int>&           a_regIrregCovered,
+                                       Vector<IrregNode>&      a_nodes,
+                                       const Box&              a_validRegion,
+                                       const Box&              a_ghostRegion,
+                                       const ProblemDomain&    a_domain,
+                                       const RealVect&         a_probLo,
+                                       const Real&             a_dx,
+                                       const BaseIVFAB<Real>&  a_parents,
+                                       const Real&             a_parentDx) const
+{
+  return false;
+}
+
 void GeometryService::postMakeBoxLayout(const DisjointBoxLayout& a_dbl,
                                         const RealVect& a_dx)
 {

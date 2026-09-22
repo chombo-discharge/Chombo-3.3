@@ -26,6 +26,8 @@
 #include "VolIndex.H"
 #include "FaceIndex.H"
 #include "EBGraph.H"
+#include "BaseIVFAB.H"
+#include "TreeIntVectSet.H"
 #include "EBData.H"
 #include "EBISBox.H"
 #include "EBISLayout.H"
@@ -94,14 +96,55 @@ public:
   void coarsenVoFs(EBISLevel&           a_fineEBIS,
                    LevelData<EBGraph>&  a_fineGraph,
                    LevelData<EBData>&   a_fineData,
-                   LevelData<EBGraph>&  a_coarGraph);
+                   LevelData<EBGraph>&  a_coarGraph,
+                   const LayoutData<IntVectSet>& a_coarsenCells);
+
+  ///
+  /**
+     Overwrite this level's graph and data with the coarsening of a finer one.
+
+     This is the whole of what the coarsening constructor does once it has its grids, split out so
+     that it can also be applied to a level that was already built from the geometry service. That
+     is what a partially refined index space needs: generate the level everywhere, then let the
+     finer level, where it exists, say what the cells under it look like.
+
+     Only the boxes the finer level actually reaches are overwritten. Elsewhere what this level was
+     built with stands, which is what lets the finer level cover part of the domain: coarsening has
+     nothing to read where it does not reach.
+
+     The fine level is copied onto a refinement of this level's grids before anything is coarsened,
+     with the ghost width each step needs, so a coarse cell on a box boundary is coarsened from
+     fine cells that are all present. That copy is also what exchanges the fine level.
+   */
+  void coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiValued = true);
 
   void fixFineToCoarse(EBISLevel& a_fineEBIS);
+
+  ///
+  /**
+     Make the two sides of the boundary of what was coarsened describe the same faces.
+
+     A face there is shared by a cell that came up through coarsening and a cell that was
+     generated at this level's own resolution, and the two read it differently: the coarsened
+     side sums what the fine faces under it hold, the generated side takes it from the interface
+     as this level sees it. For a planar interface those agree exactly; for a curved one they do
+     not, and a face cannot have two areas.
+
+     The coarsened side is kept, since it is the side that has to stay the conservative coarsening
+     of the level below. The generated cell takes that area for the shared face, and its interface
+     is then taken from what its apertures demand, which is the same rule coarsening itself uses
+     and the only one that leaves the divergence identity standing.
+
+     @param[in] a_coarsenedMask One where a cell came up through coarsening and zero where it did
+     not, with a ghost cell, so a cell can ask the same of the cell across a box boundary.
+   */
+  void reconcileSeam(const LevelData<FArrayBox>& a_coarsenedMask);
 
   void coarsenFaces(EBISLevel&           a_fineEBIS,
                     LevelData<EBGraph>&  a_fineGraph,
                     LevelData<EBData>&   a_fineData,
-                    LevelData<EBGraph>&  a_coarGraph);
+                    LevelData<EBGraph>&  a_coarGraph,
+                    const LayoutData<IntVectSet>& a_coarsenCells);
 
   long long numVoFsOnProc() const;
 
@@ -200,6 +243,39 @@ public:
   ///
   void fixRegularNextToMultiValued();
 
+  /// Fetch what the geometry service kept for this level's cut cells, once.
+  void defineSurfaces();
+
+  /** Add boxes to this level, cutting them from the cells of the level one coarser.
+
+      The boxes have to be disjoint from this level's own, and two-aligned so that their
+      coarsening is a layout the coarser level's surfaces can be fetched onto.  The coarser level
+      has to already describe the parents of those boxes together with a ring around them, which
+      is the caller's business.
+
+      What is already here is kept and copied over; only the new boxes are cut.  Collective.
+      \param a_newBoxes Boxes to add, disjoint from this level's grids and two-aligned.
+      \param a_coarser  The level one coarser, which the new boxes are cut from.
+  */
+  void extendTo(const Vector<Box>& a_newBoxes, EBISLevel& a_coarser);
+
+  /** Record what lies under the given cells of this level, reading it off the level one finer.
+
+      A cell holds no record of the cells beneath it unless it was coarsened, and a cell whose
+      finer cells were cut out of it was not.  GraphNode::refine stops on such a cell, and
+      EBISLayout promises to be able to refine every level below the finest, so the record has to
+      be written for the cells the extension gave children to.  The cells themselves are not
+      touched -- they keep the vofs, arcs and moments they were made with.
+
+      Collective.
+      \param a_finer Level one finer, already extended to cover the cells.
+      \param a_cells Cells of this level to write the record for.
+  */
+  void attachFinerNodesFrom(EBISLevel& a_finer, const TreeIntVectSet& a_cells);
+
+  /// Number of values kept per cut cell, or zero if the geometry service keeps none.
+  int numSurfaceComponents() const;
+
   void clearMultiBoundaries();
   void setBoundaryPhase(int phase);
 
@@ -242,6 +318,19 @@ private:
 
   ///
   LevelData<EBData>  m_data;
+
+  /// What each cut cell was made from, kept so that a finer level can be cut from this one.
+  /**
+     Empty unless the geometry service keeps anything, which only the polyhedral generator does.
+     Built on first need rather than with the level, since a run that never asks for a level the
+     index space does not carry never needs it.  Carries no ghost cells, for the same reason
+     m_graph and m_data carry none: what reaches beyond a box is fetched with a copyTo at the
+     point of use.
+  */
+  LevelData<BaseIVFAB<Real> > m_surface;
+
+  /// Whether defineSurfaces has already run, whether or not it found anything to keep.
+  bool m_hasSurface;
 
   Real m_tolerance; // used in Multifluid face matching algorithm.
 

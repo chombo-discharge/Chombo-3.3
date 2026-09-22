@@ -23,6 +23,8 @@
 #include "EBIndexSpace.H"
 #include "EBGraphFactory.H"
 #include "EBDataFactory.H"
+#include "BaseIVFactory.H"
+#include "LoadBalance.H"
 #include "EBISLayout.H"
 #include "VoFIterator.H"
 #include "IrregNode.H"
@@ -304,6 +306,7 @@ EBISLevel::EBISLevel(HDF5Handle& a_handle)
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
 
   HDF5HeaderData header;
@@ -502,6 +505,7 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
   m_domain = a_domain;
   m_dx = a_dx;
@@ -592,6 +596,327 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
 //now fix the multivalued next to regular thing for the graph and the data
 //the oldgraph/newgraph thing is necessary because the graphs are
 //reference counted and they have to be kept consistent with the data
+int EBISLevel::numSurfaceComponents() const
+{
+  return (m_geoserver == NULL) ? 0 : m_geoserver->numSurfaceComponents();
+}
+
+void EBISLevel::defineSurfaces()
+{
+  CH_TIME("EBISLevel::defineSurfaces");
+
+  if (m_hasSurface)
+    {
+      return;
+    }
+
+  m_hasSurface = true;
+
+  const int ncomp = this->numSurfaceComponents();
+
+  if (ncomp <= 0)
+    {
+      // The geometry service keeps nothing, which is every service but the polyhedral one, and
+      // which is what makes a level built by any of them unable to be refined.
+      return;
+    }
+
+  LayoutData<IntVectSet>        sets(m_grids);
+  LayoutData<Vector<IntVect> >  cells(m_grids);
+  LayoutData<Vector<Real> >     values(m_grids);
+
+  DataIterator dit = m_grids.dataIterator();
+
+  for (dit.begin(); dit.ok(); ++dit)
+    {
+      const DataIndex din = dit();
+
+      m_geoserver->getSurfaces(cells[din], values[din], m_grids[din], m_dx);
+
+      IntVectSet ivs;
+
+      for (int n = 0; n < cells[din].size(); n++)
+        {
+          ivs |= cells[din][n];
+        }
+
+      sets[din] = ivs;
+    }
+
+  // BaseIVFactory reads the graph through an EBISLayout, and this level's own grids with no
+  // ghost cells is the layout whose graph is exactly m_graph.  It costs a copy of the level
+  // while this runs; the alternative is a factory that takes a LevelData<EBGraph> directly,
+  // which is worth adding if this ever shows up in a profile.
+  EBISLayout ebisl;
+  this->fillEBISLayout(ebisl, m_grids, 0);
+
+
+  BaseIVFactory<Real> factory(ebisl, sets);
+
+  m_surface.define(m_grids, ncomp, IntVect::Zero, factory);
+
+  for (dit.begin(); dit.ok(); ++dit)
+    {
+      const DataIndex din = dit();
+
+      BaseIVFAB<Real>&       fab      = m_surface[din];
+      const Vector<IntVect>& theCells = cells[din];
+      const Vector<Real>&    theVals  = values[din];
+
+      for (int n = 0; n < theCells.size(); n++)
+        {
+          // the generator mandates single-valued cut cells, so each one is a single volume
+          const VolIndex vof(theCells[n], 0);
+
+          for (int comp = 0; comp < ncomp; comp++)
+            {
+              fab(vof, comp) = theVals[n*ncomp + comp];
+            }
+        }
+    }
+}
+
+void EBISLevel::extendTo(const Vector<Box>& a_newBoxes, EBISLevel& a_coarser)
+{
+  CH_TIME("EBISLevel::extendTo");
+
+  CH_assert(a_newBoxes.size() > 0);
+  CH_assert(m_geoserver != NULL);
+
+  // The parents have to be on the coarser level rather than on the geometry service, since the
+  // service keeps them on layouts of its own and a box being cut wants the parents of its ghost
+  // cells too -- which generally sit on another rank.
+  a_coarser.defineSurfaces();
+
+  const int ncomp = a_coarser.numSurfaceComponents();
+
+  CH_assert(ncomp > 0);
+
+  const Interval interv(0, ncomp - 1);
+
+  Vector<Box> newBoxes = a_newBoxes;
+  Vector<int> newRanks;
+
+  LoadBalance(newRanks, newBoxes);
+
+  DisjointBoxLayout newGrids(newBoxes, newRanks, m_domain);
+
+  // The parents of a box reach one coarse cell past its own coarsening, since the graph is built
+  // over the box grown by one and the data asks the graph for one further still.  Two is taken
+  // rather than one so that the parent graph reaches past the parent data, which is what defining
+  // face data needs.
+  Vector<Box> parentBoxes(newBoxes.size());
+
+  for (int i = 0; i < newBoxes.size(); i++)
+    {
+      CH_assert(newBoxes[i] == refine(coarsen(newBoxes[i], 2), 2));
+
+      parentBoxes[i] = coarsen(newBoxes[i], 2);
+    }
+
+  DisjointBoxLayout parentGrids(parentBoxes, newRanks, a_coarser.m_domain);
+
+  const int     parentGhost     = 2;
+  const IntVect parentGhostVect = parentGhost*IntVect::Unit;
+
+  EBISLayout parentLayout;
+  a_coarser.fillEBISLayout(parentLayout, parentGrids, parentGhost);
+
+  // A surface was kept for every cell the generator called irregular, so the graph is what says
+  // where they are -- which is also what lays the destination out to receive them.
+  LayoutData<IntVectSet> parentSets(parentGrids);
+
+  DataIterator pdit = parentGrids.dataIterator();
+
+  for (pdit.begin(); pdit.ok(); ++pdit)
+    {
+      const Box grown = grow(parentGrids[pdit()], parentGhostVect) & a_coarser.m_domain.domainBox();
+
+      parentSets[pdit()] = parentLayout[pdit()].getEBGraph().getIrregCells(grown);
+    }
+
+  BaseIVFactory<Real> parentFact(parentLayout, parentSets);
+
+  LevelData<BaseIVFAB<Real> > parents(parentGrids, ncomp, parentGhostVect, parentFact);
+
+  {
+    Copier copier(a_coarser.m_grids, parentGrids, a_coarser.m_domain, parentGhostVect);
+
+    a_coarser.m_surface.copyTo(interv, parents, interv, copier);
+  }
+
+  // cut the new boxes
+  EBGraphFactory graphfact(m_domain);
+  EBDataFactory  datafact;
+
+  LevelData<EBGraph> newGraph(newGrids, 1, IntVect::Unit, graphfact);
+  LevelData<EBData>  newData (newGrids, 1, IntVect::Zero, datafact);
+
+  DataIterator ndit = newGrids.dataIterator();
+
+  for (ndit.begin(); ndit.ok(); ++ndit)
+    {
+      const DataIndex din = ndit();
+
+      const Box region      = grow(newGrids[din], 1) & m_domain.domainBox();
+      const Box ghostRegion = grow(region,        1) & m_domain.domainBox();
+
+      BaseFab<int>      regIrregCovered(ghostRegion, 1);
+      Vector<IrregNode> nodes;
+
+      const bool cut = m_geoserver->fillRefinedGraph(regIrregCovered, nodes, region, ghostRegion,
+                                                     m_domain, m_origin, m_dx,
+                                                     parents[din], a_coarser.m_dx);
+
+      if (!cut)
+        {
+          MayDay::Error("EBISLevel::extendTo - the geometry service could not cut a box it was asked for");
+        }
+
+      newGraph[din].buildGraph(regIrregCovered, nodes, region, m_domain);
+      newData [din].define(newGraph[din], nodes, newGrids[din]);
+    }
+
+  // the level is what it was, plus the new boxes
+  Vector<Box> allBoxes;
+  Vector<int> allRanks;
+
+  for (LayoutIterator lit = m_grids.layoutIterator(); lit.ok(); ++lit)
+    {
+      allBoxes.push_back(m_grids[lit()]);
+      allRanks.push_back(m_grids.procID(lit()));
+    }
+
+  for (int i = 0; i < newBoxes.size(); i++)
+    {
+      allBoxes.push_back(newBoxes[i]);
+      allRanks.push_back(newRanks[i]);
+    }
+
+  DisjointBoxLayout allGrids(allBoxes, allRanks, m_domain);
+
+  const Interval one(0, 0);
+
+  // temporary: what the level held before the merge, as plain numbers, so the comparison after
+  // does not go through any of the machinery under test
+  std::vector<Box>  probeBoxes;
+  std::vector<Real> probeKappa;
+  std::vector<int>  probeCount;
+
+  {
+    DataIterator pdit2 = m_grids.dataIterator();
+
+    for (pdit2.begin(); pdit2.ok(); ++pdit2)
+      {
+        const Box& box = m_grids[pdit2()];
+        const IntVectSet ivs = m_graph[pdit2()].getIrregCells(box);
+
+        probeBoxes.push_back(box);
+        probeCount.push_back(0);
+
+        for (IVSIterator it(ivs); it.ok(); ++it)
+          {
+            probeKappa.push_back(m_data[pdit2()].volFrac(VolIndex(it(), 0)));
+            probeCount.back()++;
+          }
+      }
+  }
+
+
+  // EBData is laid out against its graph and is only usable once it has been defined against
+  // one.  LevelData's copy definer does not do that -- it makes its fabs with EBDataFactory,
+  // which leaves them undefined, and then copies into them -- so a LevelData<EBData> built that
+  // way holds nothing and reading it is undefined.  Everything below therefore defines each
+  // destination against its graph first and only then copies into it.
+  LevelData<EBGraph> allGraph(allGrids, 1, IntVect::Unit, graphfact);
+
+  m_graph .copyTo(one, allGraph, one);
+  newGraph.copyTo(one, allGraph, one);
+
+  LevelData<EBData> allData(allGrids, 1, IntVect::Zero, datafact);
+
+  DataIterator adit = allGrids.dataIterator();
+
+  for (adit.begin(); adit.ok(); ++adit)
+    {
+      allData[adit()].defineVoFData (allGraph[adit()], allGrids[adit()]);
+      allData[adit()].defineFaceData(allGraph[adit()], allGrids[adit()]);
+    }
+
+  m_data .copyTo(one, allData, one);
+  newData.copyTo(one, allData, one);
+
+  // Hand them over.  The level's data has to be defined against the level's own graph, not
+  // against the one it was assembled beside, since the data keeps a reference to its graph.
+  m_grids = allGrids;
+
+  m_graph.define(m_grids, 1, IntVect::Unit, graphfact);
+
+  allGraph.copyTo(one, m_graph, one);
+
+  m_data.define(m_grids, 1, IntVect::Zero, datafact);
+
+  for (adit.begin(); adit.ok(); ++adit)
+    {
+      m_data[adit()].defineVoFData (m_graph[adit()], m_grids[adit()]);
+      m_data[adit()].defineFaceData(m_graph[adit()], m_grids[adit()]);
+    }
+
+  allData.copyTo(one, m_data, one);
+
+  // what was kept for the old cells no longer covers the level, and the cache is laid out against
+  // grids that have changed
+  m_surface.clear();
+  m_hasSurface = false;
+  m_cache.clear();
+}
+
+void EBISLevel::attachFinerNodesFrom(EBISLevel& a_finer, const TreeIntVectSet& a_cells)
+{
+  CH_TIME("EBISLevel::attachFinerNodesFrom");
+
+  DisjointBoxLayout fineFromCoar;
+  refine(fineFromCoar, m_grids, 2);
+  fineFromCoar.close();
+
+  EBGraphFactory fineFact(a_finer.m_domain);
+
+  LevelData<EBGraph> sharedFineGraph(fineFromCoar, 1, IntVect::Zero, fineFact);
+
+  const Interval one(0, 0);
+
+  a_finer.m_graph.copyTo(one, sharedFineGraph, one);
+
+  const IntVectSet wanted(a_cells);
+
+  long long disagreed = 0;
+
+  DataIterator dit = m_grids.dataIterator();
+
+  for (dit.begin(); dit.ok(); ++dit)
+    {
+      const DataIndex din = dit();
+
+      IntVectSet cells = wanted;
+      cells &= m_grids[din];
+
+      if (cells.isEmpty())
+        {
+          continue;
+        }
+
+      disagreed += m_graph[din].attachFinerNodes(sharedFineGraph[din], cells);
+    }
+
+  disagreed = EBLevelDataOps::parallelSum(disagreed);
+
+  if (disagreed > 0)
+    {
+      pout() << "    " << disagreed
+             << " extended cells hold a different number of vofs than the level under them" << endl;
+    }
+}
+
 void EBISLevel::fixRegularNextToMultiValued()
 {
   CH_TIME("EBISLevel::fixRegularNextToMultiValued");
@@ -620,6 +945,12 @@ void EBISLevel::fixRegularNextToMultiValued()
       m_graph[din].getRegNextToMultiValued(vofsToChange[din],
                                              oldGhostGraph[din]);
 
+      //only this box's own cells are converted here.  a ghost cell belongs to the box that holds
+      //it and is converted there, and the graph step already leaves it alone since it lies
+      //outside the graph this box owns.  the moments beside it reach one cell out, and the
+      //multivalued face this step then looks across would reach a second
+      vofsToChange[din] &= m_grids[din];
+
       m_graph[din].addFullIrregularVoFs(vofsToChange[ din],
                                           oldGhostGraph[din]);
     }
@@ -642,7 +973,7 @@ void EBISLevel::fixRegularNextToMultiValued()
       CH_TIME("EBISLevel::fixRegularNextToMultiValued_loop2");
 
       const Box localBox = grow(m_grids[din],1) & m_domain;
-      
+
       newGhostData[din].defineVoFData(oldGhostGraph[din],  localBox);
       newGhostData[din].defineFaceData(oldGhostGraph[din], localBox);
     }
@@ -821,6 +1152,7 @@ EBISLevel::EBISLevel()
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
   m_level = 0;
 
@@ -864,10 +1196,311 @@ void EBISLevel::dumpDebug(const string& a_string)
     }
 }
 
+void EBISLevel::coarsenFrom(EBISLevel& a_fineEBIS, bool a_fixRegularNextToMultiValued)
+{
+  CH_TIME("EBISLevel::coarsenFrom");
+
+//  pout() << "before coarsenVoFs " << endl;
+  //create coarsened vofs from fine.
+  //the fine graph and data on the refinement of these grids, and the coarse graph on these grids,
+  //are each read by both coarsening steps.  build them once with the widest ghost region either
+  //step needs -- three for the fine graph, two for the fine data, one for the coarse graph -- so
+  //that the level is exchanged once per object rather than once per step
+  DisjointBoxLayout fineFromCoarDBL;
+  refine(fineFromCoarDBL, m_grids, 2);
+  fineFromCoarDBL.close();
+
+  // Which of this level's boxes the finer level actually reaches. Coarsening can only speak for
+  // those; the rest keep whatever this level was built with.
+  IntVectSet fineCoverage;
+  {
+    const Vector<Box>& fineBoxes = a_fineEBIS.m_grids.boxArray();
+
+    for (int ibox = 0; ibox < fineBoxes.size(); ibox++)
+      {
+        fineCoverage |= coarsen(fineBoxes[ibox], 2);
+      }
+  }
+
+  // Coarsening a cell reads what lies under the cells around it as well as under its own, so a
+  // cell comes up through coarsening when the finer level reaches a cell past it.  The outermost
+  // ring of what the finer level was carried over is therefore not coarsened: it is what the
+  // cells inside it read, and it keeps what it was generated with.  Deciding this a cell at a
+  // time rather than a box at a time is what keeps that ring one cell thick.  A ring a box thick
+  // would have to be paid for by carrying the finer level a whole box further than it is wanted,
+  // which for a surface one or two boxes thick is most of it again.
+  //
+  // The ring is found a box at a time, from the boxes of the finer level rather than from a set
+  // over the domain.  Eroding a set is the same thing said globally, and says it far too dearly:
+  // what the finer level does not reach is nearly the whole domain, and growing a set that size
+  // costs more than everything else here put together.
+  Vector<Box> coveredBoxes;
+  {
+    const Vector<Box>& fineBoxes = a_fineEBIS.m_grids.boxArray();
+
+    for (int ibox = 0; ibox < fineBoxes.size(); ibox++)
+      {
+        coveredBoxes.push_back(coarsen(fineBoxes[ibox], 2));
+      }
+  }
+
+  LayoutData<IntVectSet> coarsenCells(m_grids);
+  LayoutData<BaseFab<bool> > reached(m_grids);
+  {
+    const DataIterator& maskDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < maskDit.size(); mybox++)
+      {
+        const DataIndex din = maskDit[mybox];
+
+        Box grown = m_grids[din];
+        grown.grow(1);
+        grown &= m_domain;
+
+        reached[din].resize(grown, 1);
+        reached[din].setVal(false);
+
+        for (int ibox = 0; ibox < coveredBoxes.size(); ibox++)
+          {
+            const Box overlap = coveredBoxes[ibox] & grown;
+
+            if (!overlap.isEmpty())
+              {
+                reached[din].setVal(true, overlap, 0, 1);
+              }
+          }
+
+        coarsenCells[din] = IntVectSet(DenseIntVectSet(m_grids[din], false));
+
+        for (BoxIterator bit(m_grids[din]); bit.ok(); ++bit)
+          {
+            bool all = reached[din](bit(), 0);
+
+            for (int idir = 0; idir < SpaceDim && all; idir++)
+              {
+                for (SideIterator sit; sit.ok(); ++sit)
+                  {
+                    const IntVect iv = bit() + sign(sit()) * BASISV(idir);
+
+                    if (m_domain.contains(iv) && !reached[din](iv, 0))
+                      {
+                        all = false;
+                      }
+                  }
+              }
+
+            if (all)
+              {
+                coarsenCells[din] |= bit();
+              }
+          }
+      }
+  }
+
+  // What each rank holds of the mask, so that a cell can ask whether the cell across a box
+  // boundary came up through coarsening without anyone holding a set over the whole domain
+  LevelData<FArrayBox> coarsenedMask(m_grids, 1, IntVect::Unit);
+  {
+    const DataIterator& maskDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < maskDit.size(); mybox++)
+      {
+        const DataIndex din = maskDit[mybox];
+
+        coarsenedMask[din].setVal(0.0);
+
+        for (IVSIterator ivsIt(coarsenCells[din]); ivsIt.ok(); ++ivsIt)
+          {
+            coarsenedMask[din](ivsIt(), 0) = 1.0;
+          }
+      }
+
+    coarsenedMask.exchange();
+  }
+
+  EBGraphFactory ebgraphfactfine(a_fineEBIS.m_domain);
+  EBGraphFactory ebgraphfactcoar(m_domain);
+  EBDataFactory  ebdatafactshared;
+
+  LevelData<EBGraph> sharedFineGraph(fineFromCoarDBL, 1, 3*IntVect::Unit, ebgraphfactfine);
+  LevelData<EBGraph> sharedCoarGraph(m_grids,         1,   IntVect::Unit, ebgraphfactcoar);
+  LevelData<EBData>  sharedFineData (fineFromCoarDBL, 1, 2*IntVect::Unit, ebdatafactshared);
+
+  {
+    Interval sharedInterv(0,0);
+
+    if(s_distributedData){
+      simplifyGraphFromGeo(sharedFineGraph, *m_geoserver, fineFromCoarDBL, m_domain, m_origin, m_dx);
+    }
+    a_fineEBIS.m_graph.copyTo(sharedInterv, sharedFineGraph, sharedInterv);
+
+    const DataIterator& sharedDit = m_grids.dataIterator();
+
+    const int sharedNbox = sharedDit.size();
+
+#pragma omp parallel for schedule(runtime)
+    for (int mybox = 0; mybox < sharedNbox; mybox++)
+      {
+        const DataIndex din = sharedDit[mybox];
+
+        Box localBox = grow(fineFromCoarDBL.get(din), 2);
+        localBox &= a_fineEBIS.m_domain;
+        sharedFineData[din].defineVoFData(sharedFineGraph[din], localBox);
+        sharedFineData[din].defineFaceData(sharedFineGraph[din], localBox);
+      }
+
+    a_fineEBIS.m_data.copyTo(sharedInterv, sharedFineData, sharedInterv);
+  }
+
+  // The cells on the edge of what is about to be coarsened, and how many VoFs they hold now. The
+  // cells outside were generated with arcs naming these as they stand; if coarsening changes one
+  // of them, those arcs are stale and nothing goes back to rewrite them.
+  LayoutData<IntVectSet> edgeCells(m_grids);
+  LayoutData<std::vector<long long>> edgeBefore(m_grids);
+
+  {
+    const DataIterator& edgeDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < edgeDit.size(); mybox++)
+      {
+        const DataIndex din = edgeDit[mybox];
+
+        for (IVSIterator ivsIt(coarsenCells[din]); ivsIt.ok(); ++ivsIt)
+          {
+            const Box neighbourhood = grow(Box(ivsIt(), ivsIt()), 1) & reached[din].box();
+
+            for (BoxIterator nit(neighbourhood); nit.ok(); ++nit)
+              {
+                if (!reached[din](nit(), 0))
+                  {
+                    edgeCells[din] |= ivsIt();
+
+                    break;
+                  }
+              }
+          }
+
+        for (IVSIterator ivsIt(edgeCells[din]); ivsIt.ok(); ++ivsIt)
+          {
+            edgeBefore[din].push_back(m_graph[din].numVoFs(ivsIt()));
+          }
+      }
+  }
+
+  // Coarsening a cell asks its neighbours what lies under them, whether those were coarsened or
+  // not: the face between two coarse cells is decided by testing whether the fine vofs under one
+  // reach the fine vofs under the other.  A cell in a box that was not coarsened was generated
+  // instead, and holds no such record.  Write it here, for the cells the fine level reaches,
+  // without touching the cells themselves.  The record is what the neighbour is read for; the
+  // cell keeps the vofs, arcs and moments it was generated with.
+  {
+    long long disagreed = 0;
+
+    const DataIterator& recordDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < recordDit.size(); mybox++)
+      {
+        const DataIndex din = recordDit[mybox];
+
+        IntVectSet reachable(DenseIntVectSet(m_grids[din], false));
+
+        for (BoxIterator bit(m_grids[din]); bit.ok(); ++bit)
+          {
+            if (reached[din](bit(), 0))
+              {
+                reachable |= bit();
+              }
+          }
+
+        reachable -= coarsenCells[din];
+
+        if (reachable.isEmpty())
+          {
+            continue;
+          }
+
+        disagreed += m_graph[din].attachFinerNodes(sharedFineGraph[din], reachable);
+      }
+
+    disagreed = EBLevelDataOps::parallelSum(disagreed);
+
+    if (disagreed > 0)
+      {
+        pout() << "    " << disagreed
+               << " generated cells hold a different number of vofs than the fine level under them" << endl;
+      }
+  }
+
+  coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph, coarsenCells);
+
+//  pout() << "before coarsenFacess " << endl;
+  //overallMemoryUsage();
+  //create coarse faces from fine
+  coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph, coarsenCells);
+
+  // The two sides of the edge of what was coarsened read the faces they share differently.  Make
+  // them agree while the coarse ghost graph still describes the graph the data sits on
+  reconcileSeam(coarsenedMask);
+  //overallMemoryUsage();
+  //fix the regular next to the multivalued cells
+  //to be full irregular cells
+  //  dumpDebug(string("EBIS::before FRNTM"));
+  if (a_fixRegularNextToMultiValued)
+    {
+      fixRegularNextToMultiValued();
+    }
+  //  dumpDebug(string("EBIS::after FRNTM"));
+
+  //overallMemoryUsage();
+  // fix the fine->coarseVoF thing.
+//  pout() << "before fix fine to coarse " << endl;
+  fixFineToCoarse(a_fineEBIS);
+  checkGraph();
+
+  // Where a level is only coarsened in part, the cells that were not coarsened were generated
+  // with arcs naming their neighbours as they stood. Coarsening may since have changed one of
+  // those neighbours -- given it another VoF, or turned it from whole to cut -- and nothing goes
+  // back to rewrite the arcs that point at it. Say so here rather than letting a stencil walk a
+  // graph that does not join up.
+  {
+    long long stale = 0;
+
+    const DataIterator& edgeDit = m_grids.dataIterator();
+
+    for (int mybox = 0; mybox < edgeDit.size(); mybox++)
+      {
+        const DataIndex din = edgeDit[mybox];
+
+        int which = 0;
+
+        for (IVSIterator ivsIt(edgeCells[din]); ivsIt.ok(); ++ivsIt, ++which)
+          {
+            if (m_graph[din].numVoFs(ivsIt()) != edgeBefore[din][which])
+              {
+                stale++;
+              }
+          }
+      }
+
+    stale = EBLevelDataOps::parallelSum(stale);
+
+    if (stale > 0)
+      {
+        pout() << "    " << stale << " cells on the edge of what was coarsened changed underneath their neighbours"
+               << endl;
+
+        MayDay::Error("EBISLevel::coarsenFrom - coarsening changed cells on the edge of the region it covers, and the "
+                      "cells outside still hold arcs describing them as they were. The region coarsened has to reach "
+                      "past every cell coarsening changes.");
+      }
+  }
+}
+
 void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
                             LevelData<EBGraph>& a_fineGraph,
                             LevelData<EBData>&  a_fineData,
-                            LevelData<EBGraph>& a_coarGraph)
+                            LevelData<EBGraph>& a_coarGraph,
+                            const LayoutData<IntVectSet>& a_coarsenCells)
 {
   CH_TIME("EBISLevel::coarsenVoFs");
 
@@ -889,11 +1522,24 @@ void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
   for (int mybox = 0; mybox < nbox; mybox++) 
     {
       const DataIndex din = dit[mybox];
-      
+
+      if (a_coarsenCells[din].isEmpty())
+        {
+          continue;
+        }
+
       const EBGraph& fineEBGraph = fineFromCoarEBGraph[din];
       const Box& coarRegion      = m_grids[din];
       EBGraph& coarEBGraph = m_graph[din];
-      coarEBGraph.coarsenVoFs(fineEBGraph, coarRegion);
+
+      if (a_coarsenCells[din].contains(coarRegion))
+        {
+          coarEBGraph.coarsenVoFs(fineEBGraph, coarRegion);
+        }
+      else
+        {
+          coarEBGraph.coarsenVoFs(fineEBGraph, a_coarsenCells[din]);
+        }
     }
 
   //the coarse ghost graph is filled here and reused by coarsenFaces, which needs the same layout,
@@ -916,11 +1562,239 @@ void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
     {
       const DataIndex din = dit[mybox];
 
+      if (a_coarsenCells[din].isEmpty())
+        {
+          continue;
+        }
+
       const EBGraph& fineEBGraph =  fineFromCoarEBGraph[din];
       const EBData& fineEBData = fineFromCoarEBData[din];
       const EBGraph& coarEBGraph = coarGhostEBGraph[din];
 
-      m_data[din].coarsenVoFs(fineEBData, fineEBGraph, coarEBGraph, m_grids[din]);
+      if (a_coarsenCells[din].contains(m_grids[din]))
+        {
+          m_data[din].coarsenVoFs(fineEBData, fineEBGraph, coarEBGraph, m_grids[din]);
+
+          continue;
+        }
+
+      //the cells the finer level does not reach keep what they were generated with, but the data
+      //has to be laid out again on the graph coarsening has just changed.  hold their moments
+      //aside, lay it out, put them back, and let coarsening fill the rest
+      IntVectSet keep = coarEBGraph.getIrregCells(m_grids[din]);
+      keep -= a_coarsenCells[din];
+
+      Vector<VolIndex> keptVoFs;
+      Vector<VolData>  keptData;
+
+      for (VoFIterator vofit(keep, coarEBGraph); vofit.ok(); ++vofit)
+        {
+          keptVoFs.push_back(vofit());
+          keptData.push_back(m_data[din].getVolData()(vofit(), 0));
+        }
+
+      m_data[din].defineVoFData(coarEBGraph, m_grids[din]);
+
+      for (int ikept = 0; ikept < keptVoFs.size(); ikept++)
+        {
+          m_data[din].getVolData()(keptVoFs[ikept], 0) = keptData[ikept];
+        }
+
+      IntVectSet fill = coarEBGraph.getIrregCells(m_grids[din]);
+      fill &= a_coarsenCells[din];
+
+      m_data[din].coarsenVoFs(fineEBData, fineEBGraph, coarEBGraph, fill);
+    }
+}
+
+void EBISLevel::reconcileSeam(const LevelData<FArrayBox>& a_coarsenedMask)
+{
+  CH_TIME("EBISLevel::reconcileSeam");
+
+  // What each cell holds for each of its own faces, so that a cell can be told what the cell
+  // across a box boundary holds for the face they share.  Sending it as cell data rather than as
+  // face data is what makes the answer unambiguous: a face belongs to two cells and both boxes
+  // store it, so exchanging the faces themselves delivers whichever of the two the copy reached
+  // last, which for half of them is the value we already had
+  const int numSides = 2 * SpaceDim;
+
+  LevelData<FArrayBox> faceView(m_grids, numSides, IntVect::Unit);
+
+  const DataIterator& dit = m_grids.dataIterator();
+
+  for (int mybox = 0; mybox < dit.size(); mybox++)
+    {
+      const DataIndex din = dit[mybox];
+
+      const EBGraph& graph = m_graph[din];
+      const EBData&  data  = m_data[din];
+
+      FArrayBox& view = faceView[din];
+
+      view.setVal(0.0);
+
+      for (BoxIterator bit(m_grids[din]); bit.ok(); ++bit)
+        {
+          const IntVect iv = bit();
+
+          if (graph.isCovered(iv))
+            {
+              continue;
+            }
+
+          if (graph.isRegular(iv))
+            {
+              for (int iside = 0; iside < numSides; iside++)
+                {
+                  view(iv, iside) = 1.0;
+                }
+
+              continue;
+            }
+
+          const Vector<VolIndex> vofs = graph.getVoFs(iv);
+
+          for (int idir = 0; idir < SpaceDim; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  Real area = 0.0;
+
+                  for (int ivof = 0; ivof < vofs.size(); ivof++)
+                    {
+                      const Vector<FaceIndex> faces = graph.getFaces(vofs[ivof], idir, sit());
+
+                      for (int iface = 0; iface < faces.size(); iface++)
+                        {
+                          area += data.areaFrac(faces[iface]);
+                        }
+                    }
+
+                  view(iv, 2 * idir + ((sit() == Side::Hi) ? 1 : 0)) = area;
+                }
+            }
+        }
+    }
+
+  faceView.exchange();
+
+  long long ambiguous = 0;
+
+  for (int mybox = 0; mybox < dit.size(); mybox++)
+    {
+      const DataIndex din = dit[mybox];
+
+      const EBGraph&   graph = m_graph[din];
+      const FArrayBox& view  = faceView[din];
+
+      IntVectSet seam = graph.getIrregCells(m_grids[din]);
+
+      for (IVSIterator trim(seam); trim.ok(); ++trim)
+        {
+          if (a_coarsenedMask[din](trim(), 0) > 0.5)
+            {
+              seam -= trim();
+            }
+        }
+
+      for (IVSIterator ivsIt(seam); ivsIt.ok(); ++ivsIt)
+        {
+          const IntVect iv = ivsIt();
+
+          bool touchesCoarsened = false;
+
+          for (int idir = 0; idir < SpaceDim; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  if (a_coarsenedMask[din](iv + sign(sit()) * BASISV(idir), 0) > 0.5)
+                    {
+                      touchesCoarsened = true;
+                    }
+                }
+            }
+
+          if (!touchesCoarsened)
+            {
+              continue;
+            }
+
+          const Vector<VolIndex> vofs = graph.getVoFs(iv);
+
+          // A cell holding more than one vof, or facing more than one across the seam, leaves no
+          // way to say which of them the shared face belongs to.  Say how many rather than guess
+          bool single = (vofs.size() == 1);
+
+          for (int idir = 0; idir < SpaceDim && single; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  if (a_coarsenedMask[din](iv + sign(sit()) * BASISV(idir), 0) < 0.5)
+                    {
+                      continue;
+                    }
+
+                  if (graph.getFaces(vofs[0], idir, sit()).size() > 1)
+                    {
+                      single = false;
+                    }
+                }
+            }
+
+          if (!single)
+            {
+              ambiguous++;
+
+              continue;
+            }
+
+          const VolIndex& vof = vofs[0];
+
+          RealVect apertureVector = RealVect::Zero;
+
+          for (int idir = 0; idir < SpaceDim; idir++)
+            {
+              for (SideIterator sit; sit.ok(); ++sit)
+                {
+                  const IntVect other = iv + sign(sit()) * BASISV(idir);
+
+                  const Vector<FaceIndex> faces = graph.getFaces(vof, idir, sit());
+
+                  Real area = 0.0;
+
+                  for (int iface = 0; iface < faces.size(); iface++)
+                    {
+                      FaceData& here = m_data[din].getFaceData(idir)(faces[iface], 0);
+
+                      // take what the coarsened side holds, and keep it, so that whichever side a
+                      // reader takes the face from it reads the same number
+                      if (a_coarsenedMask[din](other, 0) > 0.5)
+                        {
+                          here.m_areaFrac = view(other, 2 * idir + ((sit() == Side::Hi) ? 0 : 1));
+                        }
+
+                      area += here.m_areaFrac;
+                    }
+
+                  apertureVector[idir] += (sit() == Side::Hi) ? area : -area;
+                }
+            }
+
+          VolData& volData = m_data[din].getVolData()(vof, 0);
+
+          const Real area = apertureVector.vectorLength();
+
+          volData.m_averageFace.m_bndryArea = area;
+          volData.m_averageFace.m_normal    = (area > 0.0) ? (apertureVector / area) : RealVect::Zero;
+        }
+    }
+
+  ambiguous = EBLevelDataOps::parallelSum(ambiguous);
+
+  if (ambiguous > 0)
+    {
+      pout() << "    " << ambiguous
+             << " cells on the edge of what was coarsened face more than one vof and were left alone" << endl;
     }
 }
 
@@ -955,7 +1829,8 @@ void EBISLevel::fixFineToCoarse(EBISLevel& a_fineEBIS)
 void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
                              LevelData<EBGraph>& a_fineGraph,
                              LevelData<EBData>&  a_fineData,
-                             LevelData<EBGraph>& a_coarGraph)
+                             LevelData<EBGraph>& a_coarGraph,
+                             const LayoutData<IntVectSet>& a_coarsenCells)
 {
   CH_TIME("EBISLevel::coarsenFaces");
   //now make a fine ebislayout with two ghost cell
@@ -985,10 +1860,23 @@ void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
     {
       const DataIndex din = dit[mybox];  
 
+      if (a_coarsenCells[din].isEmpty())
+        {
+          continue;
+        }
+
       const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[din];
       const EBGraph& coarEBGraphGhost = coarEBGraphGhostLD[din];
       EBGraph& coarEBGraph = m_graph[din];
-      coarEBGraph.coarsenFaces(coarEBGraphGhost, fineEBGraphGhost);
+
+      if (a_coarsenCells[din].contains(m_grids[din]))
+        {
+          coarEBGraph.coarsenFaces(coarEBGraphGhost, fineEBGraphGhost);
+        }
+      else
+        {
+          coarEBGraph.coarsenFaces(coarEBGraphGhost, fineEBGraphGhost, a_coarsenCells[din]);
+        }
     }
   //redefine coarebghostgraphld so i can use the faces for the ebdata
   coarEBGraphGhostLD.define(m_grids, 1,  IntVect::Unit, ebgraphfactcoar);
@@ -1006,12 +1894,65 @@ void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
     {
       const DataIndex din = dit[mybox];      
 
+      if (a_coarsenCells[din].isEmpty())
+        {
+          continue;
+        }
+
       const EBData&   fineEBData      = fineEBDataGhostLD[din];
       const EBGraph& fineEBGraphGhost = fineEBGraphGhostLD[din];
       const EBGraph& coarEBGraphGhost = coarEBGraphGhostLD[din];
 
       EBData& coarEBData   = m_data[din];
-      coarEBData.coarsenFaces(fineEBData,  fineEBGraphGhost, coarEBGraphGhost, m_grids.get(din));
+
+      if (a_coarsenCells[din].contains(m_grids[din]))
+        {
+          coarEBData.coarsenFaces(fineEBData, fineEBGraphGhost, coarEBGraphGhost, m_grids.get(din));
+
+          continue;
+        }
+
+      //as in coarsenVoFs: the faces of the cells the finer level does not reach are held aside
+      //while the data is laid out again.  only faces between two such cells are kept, since an
+      //arc to a cell that was coarsened may have gone or arrived and coarsening fills those
+      IntVectSet keep = coarEBGraphGhost.getIrregCells(m_grids[din]);
+      keep -= a_coarsenCells[din];
+
+      Vector<FaceIndex> keptFaces[SpaceDim];
+      Vector<FaceData>  keptData[SpaceDim];
+
+      for (int faceDir = 0; faceDir < SpaceDim; faceDir++)
+        {
+          for (FaceIterator faceit(keep, coarEBGraphGhost, faceDir, FaceStop::SurroundingWithBoundary);
+               faceit.ok(); ++faceit)
+            {
+              const FaceIndex& face = faceit();
+
+              if (a_coarsenCells[din].contains(face.gridIndex(Side::Lo)) ||
+                  a_coarsenCells[din].contains(face.gridIndex(Side::Hi)))
+                {
+                  continue;
+                }
+
+              keptFaces[faceDir].push_back(face);
+              keptData[faceDir].push_back(coarEBData.getFaceData(faceDir)(face, 0));
+            }
+        }
+
+      coarEBData.defineFaceData(coarEBGraphGhost, m_grids.get(din));
+
+      for (int faceDir = 0; faceDir < SpaceDim; faceDir++)
+        {
+          for (int ikept = 0; ikept < keptFaces[faceDir].size(); ikept++)
+            {
+              coarEBData.getFaceData(faceDir)(keptFaces[faceDir][ikept], 0) = keptData[faceDir][ikept];
+            }
+        }
+
+      IntVectSet fill = coarEBGraphGhost.getIrregCells(m_grids[din]);
+      fill &= a_coarsenCells[din];
+
+      coarEBData.coarsenFaces(fineEBData, fineEBGraphGhost, coarEBGraphGhost, fill);
     }
 
 }
@@ -1026,6 +1967,7 @@ EBISLevel::EBISLevel(EBISLevel             & a_fineEBIS,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
 
   m_domain = coarsen(a_fineEBIS.m_domain,2);
   m_dx = 2.*a_fineEBIS.m_dx;
@@ -1068,71 +2010,7 @@ EBISLevel::EBISLevel(EBISLevel             & a_fineEBIS,
   EBDataFactory ebdatafact;
   m_data.define(m_grids, 1, IntVect::Zero, ebdatafact);
   
-//  pout() << "before coarsenVoFs " << endl;
-  //create coarsened vofs from fine.
-  //the fine graph and data on the refinement of these grids, and the coarse graph on these grids,
-  //are each read by both coarsening steps.  build them once with the widest ghost region either
-  //step needs -- three for the fine graph, two for the fine data, one for the coarse graph -- so
-  //that the level is exchanged once per object rather than once per step
-  DisjointBoxLayout fineFromCoarDBL;
-  refine(fineFromCoarDBL, m_grids, 2);
-  fineFromCoarDBL.close();
-
-  EBGraphFactory ebgraphfactfine(a_fineEBIS.m_domain);
-  EBGraphFactory ebgraphfactcoar(m_domain);
-  EBDataFactory  ebdatafactshared;
-
-  LevelData<EBGraph> sharedFineGraph(fineFromCoarDBL, 1, 3*IntVect::Unit, ebgraphfactfine);
-  LevelData<EBGraph> sharedCoarGraph(m_grids,         1,   IntVect::Unit, ebgraphfactcoar);
-  LevelData<EBData>  sharedFineData (fineFromCoarDBL, 1, 2*IntVect::Unit, ebdatafactshared);
-
-  {
-    Interval sharedInterv(0,0);
-
-    if(s_distributedData){
-      simplifyGraphFromGeo(sharedFineGraph, *m_geoserver, fineFromCoarDBL, m_domain, m_origin, m_dx);
-    }
-    a_fineEBIS.m_graph.copyTo(sharedInterv, sharedFineGraph, sharedInterv);
-
-    const DataIterator& sharedDit = m_grids.dataIterator();
-
-    const int sharedNbox = sharedDit.size();
-
-#pragma omp parallel for schedule(runtime)
-    for (int mybox = 0; mybox < sharedNbox; mybox++)
-      {
-        const DataIndex din = sharedDit[mybox];
-
-        Box localBox = grow(fineFromCoarDBL.get(din), 2);
-        localBox &= a_fineEBIS.m_domain;
-        sharedFineData[din].defineVoFData(sharedFineGraph[din], localBox);
-        sharedFineData[din].defineFaceData(sharedFineGraph[din], localBox);
-      }
-
-    a_fineEBIS.m_data.copyTo(sharedInterv, sharedFineData, sharedInterv);
-  }
-
-  coarsenVoFs(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
-
-//  pout() << "before coarsenFacess " << endl;
-  //overallMemoryUsage();
-  //create coarse faces from fine
-  coarsenFaces(a_fineEBIS, sharedFineGraph, sharedFineData, sharedCoarGraph);
-  //overallMemoryUsage();
-  //fix the regular next to the multivalued cells
-  //to be full irregular cells
-  //  dumpDebug(string("EBIS::before FRNTM"));
-  if (a_fixRegularNextToMultiValued)
-    {
-      fixRegularNextToMultiValued();
-    }
-  //  dumpDebug(string("EBIS::after FRNTM"));
-  
-  //overallMemoryUsage();
-  // fix the fine->coarseVoF thing.
-//  pout() << "before fix fine to coarse " << endl;
-  fixFineToCoarse(a_fineEBIS);
-  checkGraph();
+  coarsenFrom(a_fineEBIS, a_fixRegularNextToMultiValued);
 #if 0
   pout() << "EBISLevel::EBISLevel 4 - m_grids - m_dx: " << m_dx << endl;
   pout() << "--------" << endl;
@@ -1785,6 +2663,7 @@ EBISLevel::EBISLevel(HDF5Handle& a_handle,
   m_cacheMisses = 0;
   m_cacheHits   = 0;
   m_cacheStale  = 0;
+  m_hasSurface  = false;
   char levelcstr[256];
   sprintf(levelcstr, "%d", a_levelNumber);
   string levelstring(levelcstr);

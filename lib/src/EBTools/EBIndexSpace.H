@@ -26,6 +26,7 @@
 #include "EBISLayout.H"
 #include "GeometryService.H"
 #include "EBISLevel.H"
+#include "TreeIntVectSet.H"
 
 #include "NamespaceHeader.H"
 
@@ -68,6 +69,30 @@ public:
          const GeometryService & a_geoserver,
          int                     a_nCellMax = -1,
          int                     a_maxCoarsenings = -1);
+
+  ///
+  /**
+     Build every level from the geometry service, rather than building the finest and coarsening
+     it.
+
+     define() above asks the geometry service for the finest level only and derives the rest by
+     coarsening, which requires the finest level to describe the whole domain. Where it does not
+     -- where a level is generated over part of the domain because that is where the geometry
+     needs it -- coarsening has nothing to read outside that part, and the coarser levels come
+     out wrong there.
+
+     This asks the geometry service for each level in turn instead, so a level's coverage is
+     whatever makeGrids() hands back for it. Keeping the levels consistent with each other then
+     belongs to the geometry service: a cell that a finer level covers has to be filled from that
+     finer description rather than reconstructed independently, or the two will not agree.
+   */
+  void
+  defineEveryLevel(const ProblemDomain   & a_domain,
+                   const RealVect        & a_origin,
+                   const Real            & a_dx,
+                   const GeometryService & a_geoserver,
+                   int                     a_nCellMax = -1,
+                   int                     a_maxCoarsenings = -1);
 
 #ifdef CH_USE_HDF5
   /// reads in all levels from finest level down
@@ -283,6 +308,35 @@ public:
   static bool s_useMemoryLoadBalance;
 
 private:
+  /** Make a level describe a region it was not carried over, by cutting the cells of the level
+      one coarser.
+
+      Only a geometry service that keeps what its cut cells were made from can do this, and a
+      level whose service keeps nothing is left as it is.
+
+      The cut is always one refinement deep.  Two levels that were both generated are not
+      refinements of one another -- a coarse level near what was carried is the coarsening of the
+      finer one, so cutting it does not give back the cells it was coarsened from -- and boxes
+      taking different ancestors would then disagree on the faces between them.  So the level one
+      coarser is made to describe what is needed first, by the same route, which terminates at the
+      coarsest level because that one is always carried in full.
+
+      The level only ever grows.  A region that stops being asked for keeps what was built for it,
+      since the same region tends to be asked for again and a cell still there is a cell nobody
+      has to cut twice.
+
+      Collective.
+      \param a_level  Level to extend, finest first.
+      \param a_region Cells the level has to describe, on its own resolution.
+  */
+  void extendLevel(const int a_level, const TreeIntVectSet& a_region) const;
+
+  /** Whether a level already describes every cell of a region.
+      \param a_level  Level to ask about, finest first.
+      \param a_region Cells wanted, on that level's resolution.
+  */
+  bool levelDescribes(const int a_level, const TreeIntVectSet& a_region) const;
+
   Vector<RefCountedPtr<EBIndexSpace> > findConnectedComponents(int        & a_numComponents,
                                                                const bool & a_onlyBiggest);
   Vector<RefCountedPtr<EBIndexSpace> > findConnectedComponentsNew(int        & a_numComponents,
