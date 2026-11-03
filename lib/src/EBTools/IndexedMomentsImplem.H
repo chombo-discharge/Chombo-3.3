@@ -21,7 +21,6 @@
 #include <utility>
 #include "NamespaceHeader.H"
 
-template <int Dim, int P> bool                      IndexedMoments<Dim, P>::s_staticsSet     = false;
 template <int Dim, int P> Vector<IndexTM<int,Dim> > IndexedMoments<Dim, P>::s_multiIndicies  = Vector<IndexTM<int, Dim> >();
 template <int Dim, int P> int                       IndexedMoments<Dim, P>::s_size           = 0;
 using std::endl;
@@ -322,9 +321,10 @@ void
 IndexedMoments<Dim, P>::
 setStatics() 
 {
-  setSize();
-  setMultiIndicies();
-  s_staticsSet= true;
+  // The initializer of a function-local static runs exactly once, and other
+  // threads that reach it in the meantime block until it has finished.
+  static const bool staticsSet = (setSize(), setMultiIndicies(), true);
+  (void)staticsSet;
 }
 
 /*******/
@@ -332,10 +332,7 @@ template <int Dim, int P>
 IndexedMoments<Dim, P>::
 IndexedMoments() 
 {
-  if(!s_staticsSet)
-    {
-      setStatics();
-    }
+  setStatics();
 
   m_moms.resize(s_size);
   m_isRegular = 0;
