@@ -77,10 +77,7 @@ public:
   ///number of reals in the vector
   static int size()
   {
-    if(!s_staticsSet) 
-      {
-        setStatics();
-      }
+    setStatics();
     return s_size;
   }
 
@@ -133,10 +130,7 @@ public:
   ///monomial powers 
   static const Vector<IndexTM<int,Dim> >& getMonomialPowers()
   {
-    if(!s_staticsSet) 
-      {
-        setStatics();
-      }
+    setStatics();
     return s_multiIndicies;
   }
 
@@ -184,6 +178,7 @@ public:
   ///
   static IndexTM<int,Dim> getIndex(const int& a_linearIndex)
   {
+    setStatics();
     return s_multiIndicies[a_linearIndex];
   }
 
@@ -220,10 +215,12 @@ protected:
             const map<IndexTM<int, Dim>,  Real>& a_mapin) const;
 
   ///
+  /**
+     Computes s_size and s_multiIndicies on the first call and does nothing
+     on later calls. Thread safe: threads that call it while another thread
+     computes the statics wait until they are set.
+  */
   static void setStatics();
-  
-  ///
-  static bool s_staticsSet;
 
   ///
   static  int s_size;
