@@ -294,11 +294,12 @@ Vector<VolIndex> GraphNode::refine(const VolIndex& a_coarVoF) const
     {
       //irregular node.
       //cell index of the list is the same as the
-      //index into the vector. if the input cell
-      //index is too big (or < 0), we can tell by Vector
-      //going out of bounds
+      //index into the vector.
       const Vector<GraphNodeImplem>& nodeVec = *m_cellList;
+      CH_assert(a_coarVoF.cellIndex() >= 0 && a_coarVoF.cellIndex() < (int) nodeVec.size());
       const GraphNodeImplem& node =  nodeVec[a_coarVoF.cellIndex()];
+      // An irregular cell always has fluid under it, so an empty list means the links were never written.
+      CH_assert(node.m_finerNodes.size() > 0);
       retvec = node.m_finerNodes;
     }
   return retvec;
@@ -355,13 +356,18 @@ VolIndex GraphNode::coarsen(const VolIndex& a_fineVoF) const
   else if (isRegularWithMultiValuedParent())
     {
       cellIndexCoar = (*m_cellList)[0].m_coarserNode;
+      // A negative index means the link to the coarser cell was never written.
+      CH_assert(cellIndexCoar >= 0);
     }
   else
     {
       const Vector<GraphNodeImplem>& nodes = *m_cellList;
       int inode = a_fineVoF.cellIndex();
+      CH_assert(inode >= 0 && inode < (int) nodes.size());
 
       cellIndexCoar = nodes[inode].m_coarserNode;
+      // A negative index means the link to the coarser cell was never written.
+      CH_assert(cellIndexCoar >= 0);
     }
 
   return VolIndex(ivCoar, cellIndexCoar);
