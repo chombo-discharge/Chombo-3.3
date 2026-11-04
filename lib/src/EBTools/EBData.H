@@ -149,7 +149,11 @@ public:
   void
   defineFaceData(const EBGraph& a_graph, const Box& a_region);
 
-  ///define the whole thing
+  ///
+  /**
+     Define the whole thing from the nodes the graph was built from. Nodes marked
+     m_isRegular (regular cells whose coarser cell is multi-valued) are skipped.
+  */
   void
   define(const EBGraph&           a_graph,
          const Vector<IrregNode>& a_irregData,
@@ -362,7 +366,11 @@ public:
   void
   defineFaceData(const EBGraph& a_graph, const Box& a_region);
 
-  ///define the whole thing
+  ///
+  /**
+     Define the whole thing from the nodes the graph was built from. Nodes marked
+     m_isRegular (regular cells whose coarser cell is multi-valued) are skipped.
+  */
   void
   define(const EBGraph&           a_graph,
          const Vector<IrregNode>& a_irregData,
