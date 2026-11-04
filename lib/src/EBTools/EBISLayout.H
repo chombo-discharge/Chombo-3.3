@@ -13,6 +13,8 @@
 #ifndef _EBISLAYOUT_H_
 #define _EBISLAYOUT_H_
 
+#include <functional>
+
 #include "REAL.H"
 #include "IntVect.H"
 #include "IntVectSet.H"
@@ -39,6 +41,20 @@ class EBISLayoutImplem;
 class EBISLayout
 {
 public:
+  ///
+  /**
+     Fills the graph and the data of a layout. The filler defines a_graph over a_grids with
+     a_graphGhost ghost cells and a_data with a_dataGhost ghost cells, and fills both, ghost
+     cells included, on the domain a_domain. The graph carries the links to the coarser and
+     finer levels wherever those levels exist. a_graphGhost is a_dataGhost + 1. Collective.
+  */
+  using Filler = std::function<void(LevelData<EBGraph>&      a_graph,
+                                    LevelData<EBData>&       a_data,
+                                    const DisjointBoxLayout& a_grids,
+                                    const ProblemDomain&     a_domain,
+                                    const int                a_graphGhost,
+                                    const int                a_dataGhost)>;
+
   ///
   /**
      Access the {\tt EBISBox} associated with the input DataIndex.
@@ -137,6 +153,17 @@ public:
               const int& a_nghost,
               const LevelData<EBGraph>& a_graph,
               const LevelData<EBData> & a_data);
+
+  ///
+  /**
+     Define the layout over a_grids with a_nghost ghost cells, with the graph and data
+     made by a_filler instead of copied from the whole level. The graph is filled with
+     a_nghost + 1 ghost cells and the data with a_nghost. Collective.
+  */
+  void define(const ProblemDomain&             a_domain,
+              const DisjointBoxLayout&         a_grids,
+              const int&                       a_nghost,
+              const EBISLayout::Filler&        a_filler);
 
   bool isDefined() const;
 
@@ -260,6 +287,17 @@ public:
               const LevelData<EBData> & a_data);
 
   ///
+  /**
+     Define the layout over a_grids with a_nghost ghost cells, with the graph and data
+     made by a_filler instead of copied from the whole level. The graph is filled with
+     a_nghost + 1 ghost cells and the data with a_nghost. Collective.
+  */
+  void define(const ProblemDomain&             a_domain,
+              const DisjointBoxLayout&         a_grids,
+              const int&                       a_nghost,
+              const EBISLayout::Filler&        a_filler);
+
+  ///
   static void setVerbose(bool a_verbose);
 
   bool isDefined() const {return m_defined;}
@@ -310,6 +348,23 @@ private:
   bool m_defined;
 
 private:
+  ///
+  /**
+     Set the domain, the ghost width and the ghosted layout for a_grids, and reset the
+     coarser and finer layouts and the coarsening and refinement ratios.
+  */
+  void setLayout(const ProblemDomain&     a_domain,
+                 const DisjointBoxLayout& a_grids,
+                 const int&               a_nghost);
+
+  ///
+  /**
+     Define the EBISBoxes from the graph and data of the layout, and mark the layout defined.
+  */
+  void defineEBISBoxes(const LevelData<EBGraph>& a_graph,
+                       const LevelData<EBData>&  a_data,
+                       const DisjointBoxLayout&  a_grids);
+
   static bool s_verbose;
   void operator=(const EBISLayoutImplem& ebiin)
   {;}
