@@ -138,6 +138,18 @@ public:
 
   ///
   /**
+     Defines the level in filler mode: the level holds no graph or data of its own, and
+     fillEBISLayout fills each layout through a_filler. The functions that need the whole
+     level (the irregular, flow and covered grids, irregCells, writing, coarsening, stitching
+     and the checks) stop the run in this mode.
+   */
+  EBISLevel(const ProblemDomain&      a_domain,
+            const RealVect&           a_origin,
+            const Real&               a_dx,
+            const EBISLayout::Filler& a_filler);
+
+  ///
+  /**
      Defines the level from a finer level
      (factor of two refinement ratio).
      Fills in all the coarse-fine information
@@ -236,6 +248,19 @@ private:
 
   ///
   Real m_dx;
+
+  ///
+  /**
+     Fills the layouts in filler mode; empty when the level holds its graph and data.
+  */
+  EBISLayout::Filler m_filler;
+
+  ///
+  /**
+     Stop the run if the level is in filler mode. a_caller names the function that needs
+     the whole level.
+  */
+  void requireWholeLevel(const char* a_caller) const;
 
   ///
   LevelData<EBGraph> m_graph;

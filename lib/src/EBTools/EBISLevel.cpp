@@ -51,6 +51,7 @@ void
 EBISLevel::
 checkGraph() const
 {
+  requireWholeLevel("EBISLevel::checkGraph");
 #ifndef NDEBUG
   for(DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
     {
@@ -89,6 +90,7 @@ bool EBISLevel::s_recursive = false;
 
 long long EBISLevel::numVoFsOnProc() const
 {
+  requireWholeLevel("EBISLevel::numVoFsOnProc");
   CH_TIME("EBISLevel::numVoFsOnProc");
   long long retval = 0;
   for (DataIterator dit = m_grids.dataIterator(); dit.ok(); ++dit)
@@ -103,6 +105,7 @@ long long EBISLevel::numVoFsOnProc() const
 
 Real EBISLevel::totalVolFracOnProc() const
 {
+  requireWholeLevel("EBISLevel::totalVolFracOnProc");
   CH_TIME("EBISLevel::totalVolFracOnProc");
   Real retval = 0.0;
 
@@ -363,6 +366,7 @@ EBISLevel::EBISLevel(HDF5Handle& a_handle)
 
 void EBISLevel::write(HDF5Handle& a_handle) const
 {
+  requireWholeLevel("EBISLevel::write");
   CH_TIME("EBISLevel::write");
   HDF5HeaderData header;
   //this naming stuff kinda depends on the fact
@@ -594,6 +598,7 @@ EBISLevel::EBISLevel(const ProblemDomain   & a_domain,
 //reference counted and they have to be kept consistent with the data
 void EBISLevel::fixRegularNextToMultiValued()
 {
+  requireWholeLevel("EBISLevel::fixRegularNextToMultiValued");
   CH_TIME("EBISLevel::fixRegularNextToMultiValued");
 
   EBGraphFactory graphfact(m_domain);
@@ -669,6 +674,7 @@ void EBISLevel::fixRegularNextToMultiValued()
 //bail out with MayDay::Error if anything fails
 void EBISLevel::sanityCheck(const EBIndexSpace* const a_ebisPtr)
 {
+  requireWholeLevel("EBISLevel::sanityCheck");
 #if 0
   pout() << "EBISLevel::sanityCheck" << endl;
   CH_TIME("EBISLevel::sanityCheck");
@@ -826,6 +832,36 @@ EBISLevel::EBISLevel()
 
 }
 
+EBISLevel::EBISLevel(const ProblemDomain&      a_domain,
+                     const RealVect&           a_origin,
+                     const Real&               a_dx,
+                     const EBISLayout::Filler& a_filler)
+{
+  CH_TIME("EBISLevel::EBISLevel_filler");
+  CH_assert(a_filler);
+
+  m_cacheMisses = 0;
+  m_cacheHits   = 0;
+  m_cacheStale  = 0;
+
+  m_domain    = a_domain;
+  m_dx        = a_dx;
+  m_tolerance = a_dx*1E-4;
+  m_origin    = a_origin;
+  m_level     = 0;
+  m_geoserver = NULL;
+  m_filler    = a_filler;
+}
+
+void EBISLevel::requireWholeLevel(const char* a_caller) const
+{
+  if (m_filler)
+    {
+      pout() << a_caller << " needs the whole level, which a level filled by a filler does not hold" << endl;
+      MayDay::Error("EBISLevel - function not available in filler mode");
+    }
+}
+
 //steps to coarsen an ebislevel:
 //1. coarsen vofs
 //1a. make a layout over refine(mydbl,2) and copy
@@ -838,6 +874,7 @@ EBISLevel::EBISLevel()
 // (so finer ebislevel does change in this function)
 void EBISLevel::dumpDebug(const string& a_string)
 {
+  requireWholeLevel("EBISLevel::dumpDebug");
   if (m_domain.domainBox() == EBGraphImplem::s_doDebug)
     {
       pout() << a_string <<  ": ";
@@ -869,6 +906,7 @@ void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
                             LevelData<EBData>&  a_fineData,
                             LevelData<EBGraph>& a_coarGraph)
 {
+  requireWholeLevel("EBISLevel::coarsenVoFs");
   CH_TIME("EBISLevel::coarsenVoFs");
 
   //so that i can do the vofs and faces of this level.
@@ -926,6 +964,7 @@ void EBISLevel::coarsenVoFs(EBISLevel&          a_fineEBIS,
 
 void EBISLevel::fixFineToCoarse(EBISLevel& a_fineEBIS)
 {
+  requireWholeLevel("EBISLevel::fixFineToCoarse");
   CH_TIME("EBISLevel::fixFineToCoarse");
   // make a coarse layout from the fine layout so that we
   //can fix the fine->coarseVoF thing.
@@ -957,6 +996,7 @@ void EBISLevel::coarsenFaces(EBISLevel&          a_fineEBIS,
                              LevelData<EBData>&  a_fineData,
                              LevelData<EBGraph>& a_coarGraph)
 {
+  requireWholeLevel("EBISLevel::coarsenFaces");
   CH_TIME("EBISLevel::coarsenFaces");
   //now make a fine ebislayout with two ghost cell
   //on the same mapping as m_dbl
@@ -1022,6 +1062,7 @@ EBISLevel::EBISLevel(EBISLevel             & a_fineEBIS,
                      const bool            & a_fixRegularNextToMultiValued)
 { // method used by EBIndexSpace::buildNextLevel
   CH_TIME("EBISLevel::EBISLevel_fineEBIS");
+  a_fineEBIS.requireWholeLevel("EBISLevel::EBISLevel(EBISLevel&, ...)");
 
   m_cacheMisses = 0;
   m_cacheHits   = 0;
@@ -1161,7 +1202,14 @@ void EBISLevel::fillEBISLayout(EBISLayout&              a_ebisLayout,
       CH_TIME("ebisllevel::fillebislayout cache miss");
       //int thisghost = Max(s_ebislGhost, a_nghost);
       int thisghost = a_nghost;
-      l.define(m_domain, a_grids, thisghost, m_graph, m_data);
+      if (m_filler)
+        {
+          l.define(m_domain, a_grids, thisghost, m_filler);
+        }
+      else
+        {
+          l.define(m_domain, a_grids, thisghost, m_graph, m_data);
+        }
       m_cacheMisses++;
       m_cacheStale++;
       //pout()<<"a_nghost:"<<a_nghost;
@@ -1213,6 +1261,7 @@ void EBISLevel::refreshCache() const
 
 void EBISLevel::clearMultiBoundaries()
 {
+  requireWholeLevel("EBISLevel::clearMultiBoundaries");
   CH_TIME("EBISLevel::clearMultiBoundaries");
   DataIterator dit = m_grids.dataIterator();
   for (dit.begin(); dit.ok(); ++dit)
@@ -1224,6 +1273,7 @@ void EBISLevel::clearMultiBoundaries()
 
 void EBISLevel::setBoundaryPhase(int phase)
 {
+  requireWholeLevel("EBISLevel::setBoundaryPhase");
   CH_TIME("EBISLevel::setBoundaryPhase");
   DataIterator dit = m_grids.dataIterator();
   for (dit.begin(); dit.ok(); ++dit)
@@ -1371,6 +1421,7 @@ void testAndFixBoundaryData(VolData&       a_volData0,
 
 void EBISLevel::reconcileIrreg(EBISLevel& a_otherPhase)
 {
+  requireWholeLevel("EBISLevel::reconcileIrreg");
   CH_TIME("EBISLevel::reconcileIrreg");
 
   //both layouts are made independently so will not work
@@ -1432,6 +1483,7 @@ void EBISLevel::levelStitch(EBISLevel&       a_otherPhase,
                             const EBISLevel* a_finePtrA,
                             const EBISLevel* a_finePtrB)
 {
+  requireWholeLevel("EBISLevel::levelStitch");
   CH_TIME("EBISLevel::levelStitch");
 
   //I have no idea what to do if only one of the inputs is null.
@@ -1739,6 +1791,7 @@ void EBISLevel::cellStitch(EBData&        a_ebdataCoarA,
 void EBISLevel::write(HDF5Handle& a_handle,
                       const int& a_levelNumber) const
 {
+  requireWholeLevel("EBISLevel::write");
   CH_TIME("EBISLevel::write_with_lev_number");
   HDF5HeaderData header;
   char levelcstr[256];
@@ -1866,12 +1919,14 @@ const RealVect& EBISLevel::getOrigin() const
 
 const DisjointBoxLayout& EBISLevel::getGrids() const
 {
+  requireWholeLevel("EBISLevel::getGrids");
   return m_grids;
 }
 
 // All boxes containing an irregular cell
 DisjointBoxLayout EBISLevel::getIrregGrids(const ProblemDomain& a_domain) const
 {
+  requireWholeLevel("EBISLevel::getIrregGrids");
   DisjointBoxLayout irregGrids;
   DataIterator dit =   m_graph.dataIterator();
   Vector<Box> localBoxes;
@@ -1907,6 +1962,7 @@ DisjointBoxLayout EBISLevel::getIrregGrids(const ProblemDomain& a_domain) const
 // All boxes with only irregular or regular cells
 DisjointBoxLayout EBISLevel::getFlowGrids(const ProblemDomain& a_domain) const
 {
+  requireWholeLevel("EBISLevel::getFlowGrids");
   DisjointBoxLayout flowGrids;
   DataIterator dit =   m_graph.dataIterator();
   Vector<Box> localBoxes;
@@ -1941,6 +1997,7 @@ DisjointBoxLayout EBISLevel::getFlowGrids(const ProblemDomain& a_domain) const
 // All boxes with an irregular or covered cell
 DisjointBoxLayout EBISLevel::getCoveredGrids(const ProblemDomain& a_domain) const
 {
+  requireWholeLevel("EBISLevel::getCoveredGrids");
   DisjointBoxLayout coveredGrids;
   DataIterator dit = m_graph.dataIterator();
   Vector<Box> localBoxes;
@@ -1974,6 +2031,7 @@ DisjointBoxLayout EBISLevel::getCoveredGrids(const ProblemDomain& a_domain) cons
 
 IntVectSet EBISLevel::irregCells() const
 {
+  requireWholeLevel("EBISLevel::irregCells");
   DataIterator dit =   m_graph.dataIterator();
   IntVectSet rtn;
 
@@ -1995,6 +2053,7 @@ void EBISLevel::getGraphSummary(long long & a_irrVoFs,
                                 long long & a_zeroVoFs,
                                 long long & a_zeroVoFsArcs)
 {
+  requireWholeLevel("EBISLevel::getGraphSummary");
   CH_TIME("EBISLevel::getGraphSummary");
 
   a_irrVoFs      = 0;
@@ -2087,6 +2146,7 @@ void EBISLevel::getGraphSummary(long long & a_irrVoFs,
 
 void EBISLevel::printGraphSummary(char const * a_prefix)
 {
+  requireWholeLevel("EBISLevel::printGraphSummary");
   CH_TIME("EBISLevel::printGraphSummary");
 
   long long irrVoFs;

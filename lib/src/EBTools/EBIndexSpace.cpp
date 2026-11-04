@@ -248,6 +248,50 @@ void EBIndexSpace::define(EBISLevel * a_level0,
 #endif
 }
 
+void EBIndexSpace::define(const Vector<ProblemDomain>& a_domains,
+                          const RealVect&              a_origin,
+                          const Real&                  a_finestDx,
+                          const EBISLayout::Filler&    a_filler)
+{
+  CH_TIME("EBIndexSpace::define_filler");
+
+  if (a_domains.size() == 0)
+    {
+      MayDay::Error("EBIndexSpace::define - no domains given");
+    }
+  if (!a_filler)
+    {
+      MayDay::Error("EBIndexSpace::define - the filler is empty");
+    }
+  for (int ilev = 1; ilev < a_domains.size(); ilev++)
+    {
+      if (coarsen(a_domains[ilev - 1], 2).domainBox() != a_domains[ilev].domainBox())
+        {
+          pout() << "EBIndexSpace::define - domain " << a_domains[ilev] << " is not a coarsening by two of "
+                 << a_domains[ilev - 1] << endl;
+          MayDay::Error("EBIndexSpace::define - the domains must coarsen by two from the finest");
+        }
+    }
+
+  clear();
+
+  m_nCellMax = -1;
+  m_nlevels  = a_domains.size();
+  m_domainLevel = a_domains;
+  m_ebisLevel.resize(m_nlevels, NULL);
+
+  Real dx = a_finestDx;
+  for (int ilev = 0; ilev < m_nlevels; ilev++)
+    {
+      m_ebisLevel[ilev] = new EBISLevel(a_domains[ilev], a_origin, dx, a_filler);
+      m_ebisLevel[ilev]->m_level = ilev;
+
+      dx *= 2.0;
+    }
+
+  m_isDefined = true;
+}
+
 void EBIndexSpace::define(const ProblemDomain    & a_domain,
                           const RealVect         & a_origin,
                           const Real             & a_dx,
