@@ -66,17 +66,21 @@ template < > void BaseFab<Real>::define()
   CH_assert(!m_aliased);
   //CH_assert(!(The_FAB_Arena == 0)); // not a sufficient test!!!
 
+  // The arena is made by the first define of this type on any thread. A function-local static is initialised once
+  // even when several threads reach it together, and every thread sees the arena made once past it.
+  static const bool arenaMade = []() -> bool
+  {
+    if (s_Arena == NULL)
+    {
 #ifdef CH_USE_MEMORY_TRACKING
-  if (s_Arena == NULL)
-  {
-    s_Arena = new BArena(name().c_str());
-  }
+      s_Arena = new BArena(name().c_str());
 #else
-  if (s_Arena == NULL)
-  {
-    s_Arena = new BArena("");
-  }
+      s_Arena = new BArena("");
 #endif
+    }
+    return true;
+  }();
+  (void)arenaMade;
 
   // if (s_Arena == NULL)
   // {
@@ -109,17 +113,21 @@ template < > void BaseFab<int>::define()
   CH_assert(!m_aliased);
   //CH_assert(!(The_FAB_Arena == 0)); // not a sufficient test!!!
 
+  // The arena is made by the first define of this type on any thread. A function-local static is initialised once
+  // even when several threads reach it together, and every thread sees the arena made once past it.
+  static const bool arenaMade = []() -> bool
+  {
+    if (s_Arena == NULL)
+    {
 #ifdef CH_USE_MEMORY_TRACKING
-  if (s_Arena == NULL)
-  {
-    s_Arena = new BArena(name().c_str());
-  }
+      s_Arena = new BArena(name().c_str());
 #else
-  if (s_Arena == NULL)
-  {
-    s_Arena = new BArena("");
-  }
+      s_Arena = new BArena("");
 #endif
+    }
+    return true;
+  }();
+  (void)arenaMade;
 
   // if (s_Arena == NULL)
   // {

@@ -56,6 +56,16 @@ EBISLayout::define(const ProblemDomain& a_domain,
 }
 /****************/
 void
+EBISLayout::define(const ProblemDomain&      a_domain,
+                   const DisjointBoxLayout&  a_grids,
+                   const int&                a_nghost,
+                   const EBISLayout::Filler& a_filler)
+{
+  m_nghost = a_nghost;
+  m_implem->define(a_domain, a_grids, a_nghost, a_filler);
+}
+/****************/
+void
 EBISLayoutImplem::define(const ProblemDomain& a_domain,
                          const DisjointBoxLayout& a_grids,
                          const int& a_nghost,
@@ -66,20 +76,7 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
 #ifdef CH_MPI
   MPI_Barrier(Chombo_MPI::comm);
 #endif
-  m_domain = a_domain;
-  m_nghost = a_nghost;
-  m_dblInputDom = a_grids;
-  m_fineLevels.resize(0);
-  m_coarLevels.resize(0);
-  m_maxCoarseningRatio = 2;
-  m_maxRefinementRatio = 1;//ug--face refinement means you have to have to do this once.
-
-  //generate the layout using the input layout and the ghost cells and domain;
-  m_blGhostDom.deepCopy(a_grids);
-  //they have to work with the same iterator
-  m_blGhostDom.grow(a_nghost);
-  m_blGhostDom &= m_domain.domainBox();
-  m_blGhostDom.close();
+  setLayout(a_domain, a_grids, a_nghost);
   if (s_verbose)
     {
       pout() << "in ebislayoutimplem::define" << endl;
@@ -139,26 +136,76 @@ EBISLayoutImplem::define(const ProblemDomain& a_domain,
       pout() << "EBISLayoutImplem::define just copied data " << endl;
       BaseIVFAB<VolData>::setVerbose(false);
     }
+  defineEBISBoxes(localGraph, localData, a_grids);
+}
+/****************/
+void
+EBISLayoutImplem::define(const ProblemDomain&      a_domain,
+                         const DisjointBoxLayout&  a_grids,
+                         const int&                a_nghost,
+                         const EBISLayout::Filler& a_filler)
+{
+  CH_TIME("EBISLayoutImplem::define(filler)");
+  CH_assert(a_filler);
+
+  setLayout(a_domain, a_grids, a_nghost);
+
+  LevelData<EBGraph> localGraph;
+  LevelData<EBData>  localData;
   {
-    CH_TIME("EBISBoxesDefine");
-    //define the layouts data with the ghosted layout.  this includes
-    //the problem domain stuff
-    m_ebisBoxes.define(m_blGhostDom);
+    CH_TIME("EBISLayoutImplem::define(filler)::fill");
+    //the graph one ghost cell wider than the data, as in the copying define
+    a_filler(localGraph, localData, a_grids, m_domain, a_nghost + 1, a_nghost);
+  }
+  CH_assert(localGraph.ghostVect() == (a_nghost + 1)*IntVect::Unit);
+  CH_assert(localData.ghostVect()  == (a_nghost)*IntVect::Unit);
 
-    const DataIterator dit = a_grids.dataIterator();    
+  defineEBISBoxes(localGraph, localData, a_grids);
+}
+/****************/
+void
+EBISLayoutImplem::setLayout(const ProblemDomain&     a_domain,
+                            const DisjointBoxLayout& a_grids,
+                            const int&               a_nghost)
+{
+  m_domain = a_domain;
+  m_nghost = a_nghost;
+  m_dblInputDom = a_grids;
+  m_fineLevels.resize(0);
+  m_coarLevels.resize(0);
+  m_maxCoarseningRatio = 2;
+  m_maxRefinementRatio = 1;//ug--face refinement means you have to have to do this once.
 
-    const int nbox = dit.size();
+  //generate the layout using the input layout and the ghost cells and domain;
+  m_blGhostDom.deepCopy(a_grids);
+  //they have to work with the same iterator
+  m_blGhostDom.grow(a_nghost);
+  m_blGhostDom &= m_domain.domainBox();
+  m_blGhostDom.close();
+}
+/****************/
+void
+EBISLayoutImplem::defineEBISBoxes(const LevelData<EBGraph>& a_graph,
+                                  const LevelData<EBData>&  a_data,
+                                  const DisjointBoxLayout&  a_grids)
+{
+  CH_TIME("EBISBoxesDefine");
+  //define the layouts data with the ghosted layout.  this includes
+  //the problem domain stuff
+  m_ebisBoxes.define(m_blGhostDom);
+
+  const DataIterator dit = a_grids.dataIterator();
+
+  const int nbox = dit.size();
 
 #pragma omp parallel for schedule(runtime)
-    for (int mybox = 0; mybox < nbox; mybox++)
-      {
-	const DataIndex din = dit[mybox];    
+  for (int mybox = 0; mybox < nbox; mybox++)
+    {
+      const DataIndex din = dit[mybox];
 
-	const EBGraph& graphlocal = localGraph[din];
-	Box graphregion=  graphlocal.getRegion();
-	m_ebisBoxes[din].define(localGraph[din], localData[din], din);
-      }
-  }
+      m_ebisBoxes[din].define(a_graph[din], a_data[din], din);
+    }
+
   m_defined = true;
 }
 

@@ -190,6 +190,10 @@ public:
      sparse representations of all regular or all covered graphs,
      use setToAllRegular or setToAllCovered.\\
      irregGraph contains a complete list of irregular vofs. \\
+     It may also contain nodes marked m_isRegular, one for each regular cell
+     (flagged 1) whose coarser cell is multi-valued. \\
+     The links of each node to the coarser and finer levels (m_coarserNode,
+     m_finerNodes) are copied to the graph. \\
      validRegion is the the region of the graph \\
      domain is the domain of compuation \\
      regIrregCovered = 1 for regular, 0 for irregular, -1 for covered.
@@ -580,6 +584,10 @@ public:
      sparse representations of all regular or all covered graphs,
      use setToAllRegular or setToAllCovered.\\
      irregGraph contains a complete list of irregular vofs. \\
+     It may also contain nodes marked m_isRegular, one for each regular cell
+     (flagged 1) whose coarser cell is multi-valued. \\
+     The links of each node to the coarser and finer levels (m_coarserNode,
+     m_finerNodes) are copied to the graph. \\
      validRegion is the the region of the graph \\
      domain is the domain of compuation \\
      regIrregCovered = 1 for regular, 0 for irregular, -1 for covered.
