@@ -83,6 +83,32 @@ public:
 
   ///
   /**
+     Marks a regular cell whose coarser cell is multi-valued. buildGraph gives such a cell
+     a node that is regular but records which VoF of the coarser cell it lies in
+     (m_coarserNode). The cell must be flagged regular in regIrregCovered, and every member
+     of the node except m_cell, m_cellIndex, m_isRegular and m_coarserNode is ignored.
+     Default false.
+  */
+  bool             m_isRegular;
+
+  ///
+  /**
+     Cell index of the VoF on the next coarser level that this VoF lies in. buildGraph copies
+     it to the graph, where EBGraph::coarsen returns it. Default -1, which means the link is
+     not set; the EBIndexSpace coarsening then writes it.
+  */
+  int              m_coarserNode;
+
+  ///
+  /**
+     The VoFs on the next finer level that make up this VoF. buildGraph copies them to the
+     graph, where EBGraph::refine returns them. Default empty, which means the links are not
+     set; the EBIndexSpace coarsening then writes them. Ignored when m_isRegular is true.
+  */
+  Vector<VolIndex> m_finerNodes;
+
+  ///
+  /**
       helper function for construction.  makes irregular cell
       that has connectivitity and values like a regular cell, this
       a person can modify as the irregular cell requires.  saves

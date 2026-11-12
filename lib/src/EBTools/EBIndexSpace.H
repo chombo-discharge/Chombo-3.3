@@ -85,6 +85,20 @@ public:
          int         a_nCellMax = -1,
          int         a_maxCoarsenings = -1);
 
+  ///
+  /**
+     Define the index space in filler mode, over the domains a_domains, finest first, each a
+     coarsening by two of the one before. Every level is filled through a_filler (see
+     EBISLayout::Filler) and holds no graph or data of its own, so nothing is built here.
+     a_finestDx is the cell size on a_domains[0]. The functions that need a whole level stop
+     the run.
+  */
+  void
+  define(const Vector<ProblemDomain>& a_domains,
+         const RealVect&              a_origin,
+         const Real&                  a_finestDx,
+         const EBISLayout::Filler&    a_filler);
+
   void
   define(const ProblemDomain                        & a_entireDomain,
          const RealVect                             & a_origin,
@@ -252,7 +266,7 @@ public:
 
   DisjointBoxLayout levelGrids(int level) const
   {
-    return m_ebisLevel[level]->m_grids;
+    return m_ebisLevel[level]->getGrids();
   }
 
   Real dx(int level) const

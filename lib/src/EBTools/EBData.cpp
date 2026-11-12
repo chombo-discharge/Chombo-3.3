@@ -433,7 +433,8 @@ EBDataImplem::define(const EBGraph&           a_graph,
         {
           const IrregNode& node = a_irregGraph[inode];
           const IntVect& iv = node.m_cell;
-          if (a_validBox.contains(iv))
+          // a regular cell under a multi-valued coarser cell holds no irregular data
+          if (a_validBox.contains(iv) && !node.m_isRegular)
           {
             const int&  cellInd = node.m_cellIndex;
             VolIndex vof(iv, cellInd);

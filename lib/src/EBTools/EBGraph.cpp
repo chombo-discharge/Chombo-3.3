@@ -389,6 +389,11 @@ void EBGraphImplem::checkGraph(const BaseFab<int>&      a_regIrregCovered,
   for (int ivec = 0; ivec < a_irregGraph.size(); ivec++)
     {
       const IrregNode& inputNode = a_irregGraph[ivec];
+      if (inputNode.m_isRegular)
+        {
+          // a regular cell under a multi-valued coarser cell carries no geometric data
+          continue;
+        }
       if ((inputNode.m_volFrac < -eps) || (inputNode.m_volFrac > 1.+eps))
         {
           pout() << "EBGraph::checkgraph error 3 at cell " << inputNode.m_cell << endl;
@@ -561,14 +566,33 @@ void EBGraphImplem::buildGraph(const BaseFab<int>&      a_regIrregCovered,
     }
 
   // now for irregular cells
-  // add the vofs
+  // add the vofs, with their links to the coarser and finer levels
   for (int ivecIrreg = 0; ivecIrreg < a_irregGraph.size(); ivecIrreg++)
     {
       const IrregNode& inputNode = a_irregGraph[ivecIrreg];
       const IntVect& iv =inputNode.m_cell;
 
+      if (inputNode.m_isRegular)
+        {
+          // a regular cell whose coarser cell is multi-valued: one regular node that
+          // only records which coarser vof it lies in
+          CH_assert(a_regIrregCovered(iv, 0) == 1);
+          CH_assert(inputNode.m_cellIndex == 0);
+
+          GraphNodeImplem newImplem;
+          newImplem.m_isRegular   = true;
+          newImplem.m_coarserNode = inputNode.m_coarserNode;
+
+          m_graph(iv, 0).addIrregularNode(newImplem, 0);
+          CH_assert(m_graph(iv, 0).isRegularWithMultiValuedParent());
+
+          continue;
+        }
+
       GraphNodeImplem newImplem;
-      newImplem.m_nodeInd = ivecIrreg;
+      newImplem.m_nodeInd     = ivecIrreg;
+      newImplem.m_coarserNode = inputNode.m_coarserNode;
+      newImplem.m_finerNodes  = inputNode.m_finerNodes;
 
       m_graph(iv, 0).addIrregularNode(newImplem, inputNode.m_cellIndex);
       (*m_irregIVS) |= iv;
@@ -583,6 +607,11 @@ void EBGraphImplem::buildGraph(const BaseFab<int>&      a_regIrregCovered,
     {
       const IrregNode& inputNode = a_irregGraph[ivecIrreg];
       const IntVect& iv =inputNode.m_cell;
+      if (inputNode.m_isRegular)
+        {
+          // regular cells take their faces from the regular-cell rules
+          continue;
+        }
       Vector<GraphNodeImplem>& vecNodes =
         *(m_graph(iv, 0).m_cellList);
       // pick out which node we are talking about
