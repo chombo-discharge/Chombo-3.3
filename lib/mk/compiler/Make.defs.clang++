@@ -24,7 +24,7 @@ else ifeq ($(CXXSTD),17)
 else
   defcxxcomflags := -std=c++11
 endif
-defcxxcomflags += -march=native -Wno-long-long -Wno-sign-compare -Wno-deprecated -Wno-unused-local-typedefs -Wno-overloaded-virtual
+defcxxcomflags += -Wno-long-long -Wno-sign-compare -Wno-deprecated -Wno-unused-local-typedefs -Wno-overloaded-virtual
 
 ifeq ($(OPENMPCC),TRUE)
   defcxxcomflags += -fopenmp
@@ -44,11 +44,11 @@ ifeq ($(fname),gfortran)
   deffcomflags = -Wno-line-truncation -fno-second-underscore 
   # these flags get rid of unused variables warnings. (-Wno-unused-parameter -Wno-unused-variable)
   deffcomflags += -Wno-unused-parameter -Wno-unused-variable
-  deffoptflags = -O3 -funroll-loops -march=native
+  deffoptflags = -O3 -funroll-loops
   deffdbgflags = -g -ggdb -Wall -W
   defflibflags  += -lgfortran -lm
 else
   deffdbgflags = -g 
-  defoptflags = -O2 -march=native
+  defoptflags = -O2
 #  I don't know what library flag you need if this is gfortran
 endif
