@@ -637,7 +637,9 @@ void AMRMultiGrid<T>::relax(T& a_correction, T& a_residual, int depth, int a_num
       // intermediate multigrid levels exist between this level and the
       // next coarser AMR level, so do a mini v-cyle to smooth on those
 
-      int intermediateDepth = 0;
+      // MultiGrid::m_depth counts levels, including this AMR level, so a
+      // refinement ratio of 2^n gives n levels: this one and n-1 intermediate ones.
+      int intermediateDepth = 1;
       int r = m_op[depth]->refToCoarser();
       while (r>2)
         {
@@ -646,12 +648,21 @@ void AMRMultiGrid<T>::relax(T& a_correction, T& a_residual, int depth, int a_num
         }
       int tmp = m_mg[depth]->m_depth;
       m_mg[depth]->m_depth = intermediateDepth;
+
+      // The coarsest level of the mini v-cycle is an intermediate level, not
+      // the bottom of the hierarchy, and it has no bottom solver. It is
+      // relaxed with the pre- and post-smoothing counts of a v-cycle level,
+      // instead of the bottom-smoothing count.
+      int tmpBottom = m_mg[depth]->m_bottom;
+      m_mg[depth]->m_bottom = m_mg[depth]->m_pre + m_mg[depth]->m_post;
+
       //ok, there is an intermediate multigrid level that is
       // not an AMR level.  We use regular MultiGrid smoothing algorithm for this.
       // note that MultiGrid::cycle handles relaxation on this level
       // as well, so there's no need to call the LinearOp's relax function.
       m_mg[depth]->cycle(0, a_correction, a_residual);
       m_mg[depth]->m_depth = tmp;
+      m_mg[depth]->m_bottom = tmpBottom;
     }
   else
     {
@@ -1223,7 +1234,8 @@ void AMRMultiGrid<T>::init(const Vector<T*>& a_phi, const Vector<T*>& a_rhs,
       int r = op.refToCoarser();
       if (i!= l_base)
         {
-          int intermediateDepth = 0;
+          // MultiGrid::m_depth counts levels, including this AMR level.
+          int intermediateDepth = 1;
 
           while (r>2)
             {
