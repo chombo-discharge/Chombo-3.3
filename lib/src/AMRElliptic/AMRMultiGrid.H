@@ -637,7 +637,9 @@ void AMRMultiGrid<T>::relax(T& a_correction, T& a_residual, int depth, int a_num
       // intermediate multigrid levels exist between this level and the
       // next coarser AMR level, so do a mini v-cyle to smooth on those
 
-      int intermediateDepth = 0;
+      // MultiGrid::m_depth counts levels, including this AMR level, so a
+      // refinement ratio of 2^n gives n levels: this one and n-1 intermediate ones.
+      int intermediateDepth = 1;
       int r = m_op[depth]->refToCoarser();
       while (r>2)
         {
@@ -646,12 +648,32 @@ void AMRMultiGrid<T>::relax(T& a_correction, T& a_residual, int depth, int a_num
         }
       int tmp = m_mg[depth]->m_depth;
       m_mg[depth]->m_depth = intermediateDepth;
+
+      // relax is called once on the way down (a_numSmooth = m_pre) and once on
+      // the way up (a_numSmooth = m_post). Each call relaxes every level of the
+      // mini v-cycle a_numSmooth times, so that over one AMR v-cycle the AMR
+      // level and the intermediate levels are relaxed m_pre + m_post times, as
+      // a level with a refinement ratio of 2 is. The residual is restricted
+      // first and the AMR level is relaxed last, after the prolongation. The
+      // coarsest level of the mini v-cycle is an intermediate level, not the
+      // bottom of the hierarchy, and it has no bottom solver, so it is relaxed
+      // a_numSmooth times instead of the bottom-smoothing count.
+      int tmpPre    = m_mg[depth]->m_pre;
+      int tmpPost   = m_mg[depth]->m_post;
+      int tmpBottom = m_mg[depth]->m_bottom;
+      m_mg[depth]->m_pre    = 0;
+      m_mg[depth]->m_post   = a_numSmooth;
+      m_mg[depth]->m_bottom = a_numSmooth;
+
       //ok, there is an intermediate multigrid level that is
       // not an AMR level.  We use regular MultiGrid smoothing algorithm for this.
       // note that MultiGrid::cycle handles relaxation on this level
       // as well, so there's no need to call the LinearOp's relax function.
       m_mg[depth]->cycle(0, a_correction, a_residual);
-      m_mg[depth]->m_depth = tmp;
+      m_mg[depth]->m_depth  = tmp;
+      m_mg[depth]->m_pre    = tmpPre;
+      m_mg[depth]->m_post   = tmpPost;
+      m_mg[depth]->m_bottom = tmpBottom;
     }
   else
     {
@@ -1223,7 +1245,8 @@ void AMRMultiGrid<T>::init(const Vector<T*>& a_phi, const Vector<T*>& a_rhs,
       int r = op.refToCoarser();
       if (i!= l_base)
         {
-          int intermediateDepth = 0;
+          // MultiGrid::m_depth counts levels, including this AMR level.
+          int intermediateDepth = 1;
 
           while (r>2)
             {
